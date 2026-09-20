@@ -4,9 +4,11 @@ Descrizione breve di cosa fa questo specifico file.
 Nessuna logica di business esterna deve trapelare qui.
 """
 
+from costants import(BASE,DIM)
+
 from itertools import permutations
 
-def generate_all_permutations(dim: int = 4, base: int = 10) -> list[str]:
+def generate_all_permutations(dim: int = DIM, base: int = BASE) -> list[str]:
     """
     PRE:
         - nessuna
@@ -17,7 +19,7 @@ def generate_all_permutations(dim: int = 4, base: int = 10) -> list[str]:
     characters = [str(x) for x in range(0,base)]
     return ["".join(p) for p in permutations(characters, dim)]
 
-def generate_all_feedbacks(dim: int = 4) -> list[tuple[int,int]]:
+def generate_all_feedbacks(dim: int = DIM) -> list[tuple[int,int]]:
     """
         PRE:
             - nessuna

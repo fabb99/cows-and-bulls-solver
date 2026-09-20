@@ -6,7 +6,7 @@ def count_bulls(guess: str, secret: str) -> int:
     num_bulls = 0
     for (i, x) in enumerate(secret):
         if x == guess[i]:
-            risposta += 1
+            num_bulls += 1
     return num_bulls
 
 def count_cows(guess: str, secret: str) -> int:
@@ -26,4 +26,4 @@ def calculate_feedback(guess: str, secret: str) -> tuple[int,int]:
     PRE: guess e secret stringhe valide.
     POST: Ritorna la stringa formattata (es. "++--").
     """
-    return tuple(count_bulls(guess,secret), count_cows(guess,secret))
+    return (count_bulls(guess,secret), count_cows(guess,secret))
