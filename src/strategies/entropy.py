@@ -39,13 +39,9 @@ class EntropyStrategy(BaseStrategy):
         else:
             candidates_to_test = self.all_permutations
     
-        
         scores = self.evaluate_candidates(candidates_to_test, possible_solutions)
-        
         best_score = max(scores.values())
-        
         candidates = [candidate for candidate, punteggio in scores.items() if punteggio==best_score]
-
         for x in candidates:
             if x in possible_solutions:
                 return x

@@ -3,7 +3,7 @@ Modulo: basic
 Contiene le strategie di base (Naive, Max Frequenza).
 """
 from src.strategies.base import BaseStrategy
-from src.core.costants import DIM, BASE
+from src.core.constants import DIM, BASE
 
 
 class NaiveStrategy(BaseStrategy):
@@ -23,11 +23,9 @@ class NaiveStrategy(BaseStrategy):
                 score_of_candidates[candidate]=0
 
         return score_of_candidates
-                
-
+            
     def choose_guess(self, possible_solutions: list[str]) -> str:
         return possible_solutions[0]
-
 
 class MaxFrequencyStrategy(BaseStrategy):
     """

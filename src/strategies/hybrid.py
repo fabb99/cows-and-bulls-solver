@@ -11,13 +11,11 @@ class HybridWeightedStrategy(BaseStrategy):
     (es. Entropy e Minimax) e li somma usando dei pesi specifici.
     """
     
-    # Sovrascriviamo l'__init__ per iniettare le due strategie e i pesi
     def __init__(self, strategy_a: BaseStrategy, strategy_b: BaseStrategy,ishigher_better_a: bool, ishigher_better_b: bool, weight_a: float, weight_b: float):
         """
         PRE: strategy_a e strategy_b sono istanze già inizializzate. I pesi sono float (es. 0.94 e 0.06).
         POST: Inizializza l'oggetto ibrido.
         """
-        # Salviamo un riferimento ad all_permutations copiandolo dalla prima strategia
         self.all_permutations = strategy_a.all_permutations
         self.strategy_a = strategy_a
         self.strategy_b = strategy_b
@@ -42,7 +40,6 @@ class HybridWeightedStrategy(BaseStrategy):
             best_score = min(scores.values())
             return {c: best_score/s for c, s in scores.items()}
        
-
     def evaluate_candidates(self, candidates_to_test: list[str], possible_solutions: list[str]) -> dict[str, float]:
         scores_strategy_a = self._normalize_scores(
             self.strategy_a.evaluate_candidates(candidates_to_test, possible_solutions), self.ishigher_better_a)
@@ -69,9 +66,7 @@ class HybridWeightedStrategy(BaseStrategy):
             candidates_to_test = self.all_permutations
 
         scores = self.evaluate_candidates(candidates_to_test, possible_solutions)
-                
-        best_score = max(scores.values())
-                
+        best_score = max(scores.values())  
         candidates = [candidate for candidate, punteggio in scores.items() if punteggio==best_score]
         
         for x in candidates:

@@ -4,7 +4,7 @@ Descrizione breve di cosa fa questo specifico file.
 Nessuna logica di business esterna deve trapelare qui.
 """
 
-from costants import(BASE,DIM)
+from src.core.constants import(BASE,DIM)
 
 from itertools import permutations
 
