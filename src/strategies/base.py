@@ -17,6 +17,9 @@ class BaseStrategy:
         self.all_permutations = all_permutations
         self.lookup = lookup
 
+    def evaluate_candidates(self, candidates_to_test: list[str], possible_solutions: list[str]) -> dict[str, float]:
+        raise NotImplementedError("Ogni strategia deve implementare questo metodo.")
+
     def choose_guess(self, possible_solutions: list[str], history: list[str] = None) -> str:
         """
         PRE: possible_solutions è una lista non vuota di combinazioni ancora valide.

@@ -11,7 +11,20 @@ class NaiveStrategy(BaseStrategy):
     Strategia Naive: restituisce semplicemente il primo elemento
     della lista delle soluzioni ancora compatibili.
     """
-    
+    def evaluate_candidates(self, candidates_to_test, possible_solutions) -> dict[str, float]:
+        score_of_candidates= {}
+        for candidate in candidates_to_test:
+            if candidate in possible_solutions:
+                if candidate == possible_solutions[0]:
+                    score_of_candidates[candidate]=2
+                else:
+                    score_of_candidates[candidate]=1
+            else:
+                score_of_candidates[candidate]=0
+
+        return score_of_candidates
+                
+
     def choose_guess(self, possible_solutions: list[str]) -> str:
         return possible_solutions[0]
 
@@ -51,6 +64,13 @@ class MaxFrequencyStrategy(BaseStrategy):
         for p in range(0,DIM):
             score += frequencies[p][candidate[p]]
         return score
+
+    def evaluate_candidates(self, candidates_to_test, possible_solutions) -> dict[str, float]:
+        frequencies = self._calculate_positional_frequencies(possible_solutions)
+        scores_of_candidates = {}
+        for candidate in candidates_to_test:
+            scores_of_candidates[candidate] = self._evaluate_candidate_score(candidate, frequencies)
+        return scores_of_candidates
 
     def choose_guess(self, possible_solutions: list[str]) -> str:
         """

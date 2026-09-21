@@ -21,7 +21,7 @@ class EntropyStrategy(BaseStrategy):
 
         num_soluzioni = len(possible_solutions)
         for candidate in candidates_to_test:
-            bucket = [len(x)/num_soluzioni for x in calculate_buckets(candidate, possible_solutions).values()]
+            bucket = [len(x)/num_soluzioni for x in calculate_buckets(candidate, possible_solutions, self.lookup).values()]
             scores_of_candidates[candidate] = sum(x*math.log2(x) for x in bucket if x != 0)*(-1)
             
         return scores_of_candidates
@@ -34,7 +34,11 @@ class EntropyStrategy(BaseStrategy):
         if history is None:
             history = []
             
-        candidates_to_test = get_representatives(self.all_permutations, history)
+        if len(history)<3:
+            candidates_to_test = get_representatives(self.all_permutations, history) 
+        else:
+            candidates_to_test = self.all_permutations
+    
         
         scores = self.evaluate_candidates(candidates_to_test, possible_solutions)
         

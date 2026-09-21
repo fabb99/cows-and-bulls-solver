@@ -19,8 +19,8 @@ class GreedyMinimaxStrategy(BaseStrategy):
         scores_of_candidates= {}
 
         for candidate in candidates_to_test:
-            bucket =  calculate_buckets(candidate, possible_solutions)
-            scores_of_candidates[candidate] = max(len(x) for x in bucket.values)
+            bucket =  calculate_buckets(candidate, possible_solutions, self.lookup)
+            scores_of_candidates[candidate] = max(len(x) for x in bucket.values())
             
         return scores_of_candidates
 
@@ -31,8 +31,11 @@ class GreedyMinimaxStrategy(BaseStrategy):
         """
         if history is None:
             history = []
-            
-        candidates_to_test = get_representatives(self.all_permutations, history)
+
+        if len(history):    
+            candidates_to_test = get_representatives(self.all_permutations, history)
+        else:
+            candidates_to_test = self.all_permutations
         
         scores = self.evaluate_candidates(candidates_to_test, possible_solutions)
         
