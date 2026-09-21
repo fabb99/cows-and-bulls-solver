@@ -40,7 +40,6 @@ class MaxFrequencyStrategy(BaseStrategy):
             frequencies.append(p_frequencies)
         return frequencies
 
-
     def _evaluate_candidate_score(self, candidate: str, frequencies: list[dict[str, int]]) -> int:
         """
         Calcola il punteggio di una singola combinazione basandosi sulle frequenze.
