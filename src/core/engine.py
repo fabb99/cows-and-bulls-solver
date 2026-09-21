@@ -1,4 +1,4 @@
-from lookup_table import(FeedbackLookup)
+from src.core.lookup_table import(FeedbackLookup)
 
 def filter_solutions(guess: str, feedback: str, candidates: list[str], lookup: FeedbackLookup) -> list[str]:
     """

@@ -1,4 +1,4 @@
-from feedback import calculate_feedback
+from src.core.feedback import calculate_feedback
 
 
 class FeedbackLookup:

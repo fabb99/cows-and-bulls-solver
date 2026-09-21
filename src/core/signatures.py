@@ -43,7 +43,7 @@ def group_candidates_by_signature(candidates: list[str], history: list[str]) -> 
         signatures[signature].append(candidate)
     return signatures
 
-def get_representatives(candidates: list[str], history: list[str]) -> list[str]:
+def get_representatives(candidates: list[str], history: list[str], possible_solutions: list[str]) -> list[str]:
     """
     Estrae UN SOLO rappresentante per ogni classe di equivalenza (Firma).
     
@@ -53,7 +53,12 @@ def get_representatives(candidates: list[str], history: list[str]) -> list[str]:
     """
     representatives = []
     for _, c in group_candidates_by_signature(candidates,history).items():
-        representatives.append(c[0])
+        representatives_in_possible_solutions = [r for r in c if r in possible_solutions]
+        if len(representatives_in_possible_solutions) > 0:
+            representative = representatives_in_possible_solutions[0]
+        else:
+            representative = c[0]
+        representatives.append(representative)
     return representatives
 
     

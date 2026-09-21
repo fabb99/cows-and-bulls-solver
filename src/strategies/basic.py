@@ -24,7 +24,7 @@ class NaiveStrategy(BaseStrategy):
 
         return score_of_candidates
             
-    def choose_guess(self, possible_solutions: list[str]) -> str:
+    def choose_guess(self, possible_solutions: list[str], history = None) -> str:
         return possible_solutions[0]
 
 class MaxFrequencyStrategy(BaseStrategy):
@@ -70,7 +70,7 @@ class MaxFrequencyStrategy(BaseStrategy):
             scores_of_candidates[candidate] = self._evaluate_candidate_score(candidate, frequencies)
         return scores_of_candidates
 
-    def choose_guess(self, possible_solutions: list[str]) -> str:
+    def choose_guess(self, possible_solutions: list[str], history = None) -> str:
         """
         PRE: possible_solutions è una lista non vuota.
         POST: Ritorna il candidato (appartenente a possible_solutions) con il punteggio più alto.

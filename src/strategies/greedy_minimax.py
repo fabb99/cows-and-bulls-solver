@@ -32,8 +32,8 @@ class GreedyMinimaxStrategy(BaseStrategy):
         if history is None:
             history = []
 
-        if len(history):    
-            candidates_to_test = get_representatives(self.all_permutations, history)
+        if len(history)<1:    
+            candidates_to_test = get_representatives(self.all_permutations, history, possible_solutions)
         else:
             candidates_to_test = self.all_permutations
         

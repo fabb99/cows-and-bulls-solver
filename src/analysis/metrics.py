@@ -58,7 +58,7 @@ def _fill_distribuition(node: Optional[TreeNode], current_depth: int, distribuit
 
     for child_node in node["children"].values():
         if child_node is None:
-            distribuition[current_depth] += distribuition.get(current_depth, 0) + 1
+            distribuition[current_depth] = distribuition.get(current_depth, 0) + 1
         else:
             _fill_distribuition(child_node, current_depth+1, distribuition)
     

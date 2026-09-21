@@ -3,7 +3,7 @@ Modulo: tree_builder
 Contiene la logica per generare l'albero decisionale completo di una specifica strategia
 giocata contro tutte le configurazioni possibili.
 """
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Callable,Optional
 from src.strategies.base import BaseStrategy
 from src.core.engine import calculate_buckets
 from src.core.constants import DIM
@@ -15,7 +15,8 @@ TreeNode = Dict[str, Any]
 def build_decision_tree(
     strategy: BaseStrategy, 
     possible_solutions: List[str], 
-    history: List[str] = None
+    history: List[str] = None,
+    on_victory_callback: Optional[Callable[[int], None]] = None
 ) -> TreeNode:
     """
     Costruisce ricorsivamente l'albero di tutte le partite possibili per la data strategia.
@@ -46,9 +47,11 @@ def build_decision_tree(
         if not next_possible_solutions:
             continue
         if feedback == (DIM,0):
-            decision_tree["children"][feedback] = None  
+            decision_tree["children"][feedback] = None 
+            if on_victory_callback is not None:
+                on_victory_callback(1) 
         else: 
-            decision_tree["children"][feedback] = build_decision_tree(strategy, next_possible_solutions, next_history)
+            decision_tree["children"][feedback] = build_decision_tree(strategy, next_possible_solutions, next_history, on_victory_callback)
 
     
     return decision_tree
