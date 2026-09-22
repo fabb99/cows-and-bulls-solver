@@ -47,11 +47,11 @@ def main():
     
     # Scegli se giocare interattivamente o in autoplay
     
-    # play_interactive(strategy, all_perms)
+    play_interactive(strategy, all_perms)
     
-    segreto_da_indovinare = "9835"
-    print(f"Inizio Autoplay contro il segreto: {segreto_da_indovinare}")
-    mosse = play_autoplay(strategy, segreto_da_indovinare, all_perms)
+    # segreto_da_indovinare = "9835"
+    # print(f"Inizio Autoplay contro il segreto: {segreto_da_indovinare}")
+    # mosse = play_autoplay(strategy, segreto_da_indovinare, all_perms)
 
 
 if __name__ == "__main__":

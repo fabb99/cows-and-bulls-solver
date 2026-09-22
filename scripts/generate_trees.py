@@ -14,6 +14,7 @@ from src.strategies.basic import NaiveStrategy,MaxFrequencyStrategy
 from src.strategies.greedy_minimax import GreedyMinimaxStrategy
 from src.strategies.entropy import EntropyStrategy
 from src.strategies.hybrid import HybridWeightedStrategy
+from src.strategies.deep_emv import PureDeepEVMStrategy
 
 def setup_strategies(all_perms, lookup) -> dict[str, BaseStrategy]:
     """
@@ -21,11 +22,12 @@ def setup_strategies(all_perms, lookup) -> dict[str, BaseStrategy]:
           Es: {"naive": NaiveStrategy(...), "entropy": EntropyStrategy(...), ...}
     """
     strategies = {
-        # "naive": NaiveStrategy(all_perms, lookup),
+        "naive": NaiveStrategy(all_perms, lookup),
         # "max_frequency": MaxFrequencyStrategy(all_perms, lookup),
         # "greedy_minimax": GreedyMinimaxStrategy(all_perms,lookup),
         # "max_entropy": EntropyStrategy(all_perms,lookup), 
-        "hybrid_mm_9406": HybridWeightedStrategy(EntropyStrategy(all_perms,lookup),GreedyMinimaxStrategy(all_perms,lookup),True,False,94,6,lookup),
+        # "hybrid_mm_9406": HybridWeightedStrategy(EntropyStrategy(all_perms,lookup),GreedyMinimaxStrategy(all_perms,lookup),True,False,94,6,lookup),
+        "pure_deep_emv": PureDeepEVMStrategy(all_perms,lookup, EntropyStrategy(all_perms,lookup)),
     }
     return strategies
 

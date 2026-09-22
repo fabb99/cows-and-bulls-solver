@@ -61,5 +61,12 @@ def _fill_distribuition(node: Optional[TreeNode], current_depth: int, distribuit
             distribuition[current_depth] = distribuition.get(current_depth, 0) + 1
         else:
             _fill_distribuition(child_node, current_depth+1, distribuition)
+
+def get_depth_distribution_next_move(tree: Optional[TreeNode]) -> Dict[tuple[int,int], Dict[int, int]]:
+    distributions = {}
+    for fb, sub_tree in tree["children"].items():
+        if not sub_tree is None:
+            distributions[fb] = get_depth_distribution(sub_tree)
+    return distributions
     
     
