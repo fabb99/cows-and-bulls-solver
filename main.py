@@ -34,12 +34,12 @@ def main():
     # strategy = NaiveStrategy(all_perms, lookup)
     # strategy = MaxFrequencyStrategy(all_perms, lookup)
     # strategy = GreedyMinimaxStrategy(all_perms, lookup)
-    strategy = EntropyStrategy(all_perms, lookup)
+    #strategy = EntropyStrategy(all_perms, lookup)
     
     # ESEMPIO IBRIDA:
-    # strategy_a = EntropyStrategy(all_perms, lookup)
-    # strategy_b = GreedyMinimaxStrategy(all_perms, lookup)
-    # strategy = HybridWeightedStrategy(strategy_a, strategy_b, True, False, 0.94, 0.06)
+    strategy_a = EntropyStrategy(all_perms, lookup)
+    strategy_b = GreedyMinimaxStrategy(all_perms, lookup)
+    strategy = HybridWeightedStrategy(strategy_a, strategy_b, True, False, 0.94, 0.06, lookup)
 
 
     # 3. Avvio della Partita

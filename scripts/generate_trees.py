@@ -14,8 +14,10 @@ from src.strategies.basic import NaiveStrategy,MaxFrequencyStrategy
 from src.strategies.greedy_minimax import GreedyMinimaxStrategy
 from src.strategies.entropy import EntropyStrategy
 from src.strategies.hybrid import HybridWeightedStrategy
-from src.strategies.deep_emv import PureDeepEVMStrategy
+from src.strategies.deep_evm import PureDeepEVMStrategy
 from src.strategies.estimated_evm import EstimatedEVMStrategy
+
+from experiments.train_oracle import (load_existing_dataset)
 
 def setup_strategies(all_perms, lookup) -> dict[str, BaseStrategy]:
     """
@@ -23,13 +25,15 @@ def setup_strategies(all_perms, lookup) -> dict[str, BaseStrategy]:
           Es: {"naive": NaiveStrategy(...), "entropy": EntropyStrategy(...), ...}
     """
     strategies = {
-        "naive": NaiveStrategy(all_perms, lookup),
-        "max_frequency": MaxFrequencyStrategy(all_perms, lookup),
-        "greedy_minimax": GreedyMinimaxStrategy(all_perms,lookup),
-        "max_entropy": EntropyStrategy(all_perms,lookup), 
-        # "hybrid_mm_9406": HybridWeightedStrategy(EntropyStrategy(all_perms,lookup),GreedyMinimaxStrategy(all_perms,lookup),True,False,94,6,lookup),
+        # "naive": NaiveStrategy(all_perms, lookup),
+        # "max_frequency": MaxFrequencyStrategy(all_perms, lookup),
+        # "greedy_minimax": GreedyMinimaxStrategy(all_perms,lookup),
+        # "max_entropy": EntropyStrategy(all_perms,lookup), 
+        # "hybrid_mm_5050": HybridWeightedStrategy(EntropyStrategy(all_perms,lookup),GreedyMinimaxStrategy(all_perms,lookup),True,False,50,50,lookup),
         # "pure_deep_emv": PureDeepEVMStrategy(all_perms,lookup, EntropyStrategy(all_perms,lookup)),
-        # "estimated_emv_thr_10n": EstimatedEVMStrategy(all_perms,lookup,PureDeepEVMStrategy(all_perms,lookup, EntropyStrategy(all_perms,lookup)),fallback_threshold=10),
+        # "estimated_evm_k0k1_th0": EstimatedEVMStrategy(all_perms,lookup,PureDeepEVMStrategy(all_perms,lookup, EntropyStrategy(all_perms,lookup)),fallback_threshold=0),
+        "hybrid_me_2080": HybridWeightedStrategy(EntropyStrategy(all_perms,lookup),EstimatedEVMStrategy(all_perms,lookup,PureDeepEVMStrategy(all_perms,lookup,EntropyStrategy(all_perms,lookup)),fallback_threshold=10),True,True,20,80,lookup),
+        # "fantasy_20_80": HybridWeightedStrategy(HybridWeightedStrategy(EntropyStrategy(all_perms,lookup),GreedyMinimaxStrategy(all_perms,lookup),True,False,94,6,lookup),EstimatedEVMStrategy(all_perms,lookup,PureDeepEVMStrategy(all_perms,lookup,EntropyStrategy(all_perms,lookup)),10),True,False,20,80,lookup),
     }
     return strategies
 

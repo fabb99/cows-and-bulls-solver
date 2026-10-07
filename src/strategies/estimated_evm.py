@@ -13,31 +13,40 @@ from src.core.signatures import get_representatives
 
 class EstimatedEVMStrategy(BaseStrategy):
 
-    K_FACTOR: float = 1.5686 #= 1.5757
+
+    K0_BASE: float = 1.8769
+    K1_FACTOR: float = 0.4659
+
+
 
     def __init__(
         self, 
         all_permutations: List[str], 
         lookup, 
         exact_fallback_strategy: BaseStrategy,
-        fallback_threshold: int = 10,
-        k_factor: float = K_FACTOR
+        fallback_threshold: int = 0,
+
+        k0_base: float = K0_BASE,
+        k1_factor: float = K1_FACTOR
     ):
         super().__init__(all_permutations, lookup)
         self.exact_fallback_strategy = exact_fallback_strategy
         self.fallback_threshold = fallback_threshold
-        self.k_factor = k_factor
+        self.k0_base = k0_base
+        self.k1_factor = k1_factor
+
 
     def _estimate_cost(self, entropy: float, num_solutions: int, candidate_is_valid: bool) -> float:
         """
-        Calcola l'aspettativa dell'intera mossa tramite l'entropia residua.
+        Calcola l'aspettativa dell'intera mossa tramite l'entropia residua e la penalità del caso peggiore.
         """
         if num_solutions == 1:
             return 1.0
         elif num_solutions == 2:
             return 1.5
-
-        cost = 1.0 + self.k_factor * (log2(num_solutions) - entropy)
+        residual_entropy = log2(num_solutions) - entropy
+        
+        cost = self.k0_base + (self.k1_factor * residual_entropy)
         if candidate_is_valid: 
             return cost - (1.0 / num_solutions)
         return cost
@@ -55,6 +64,7 @@ class EstimatedEVMStrategy(BaseStrategy):
             
             probabilities = [len(s) / num_solutions for s in buckets.values()]
             entropy = -sum(p * log2(p) for p in probabilities if p > 0)
+            
             
             is_valid = candidate in possible_solutions
             scores_of_candidates[candidate] = self._estimate_cost(entropy, num_solutions, is_valid)

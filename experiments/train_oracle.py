@@ -1,222 +1,217 @@
+
+
 """
 Modulo: train_oracle (Script)
-Laboratorio di Data Science per addestrare l'Oracolo Entropico.
-Raccoglie stati reali di gioco, calcola l'Entropia e il Costo Esatto,
-e applica una regressione lineare per trovare il moltiplicatore 'K' ottimale.
+Pipeline completa di Data Science:
+1. Mine di stati unici dagli alberi (N <= 40).
+2. Caricamento/Aggiornamento persistente di data/oracle_dataset.json (zero ricalcoli).
+3. Analisi della varianza e distribuzione delle feature.
+4. Regressione Lineare Multipla per calcolare K1 e K2.
 """
-from typing import List, Tuple
+from typing import List, Dict, Any, Tuple
+from pathlib import Path
+import json
 import math
-import random
-import time
-
+import numpy as np
 from tqdm import tqdm
-# Importa qui le tue strategie: Naive, EntropyStrategy, PureDeepEVMStrategy (o simili)
-# Importa generator e lookup
-from src.core.generator import generate_all_permutations
-from src.core.lookup_table import FeedbackLookup
-from src.core.engine import filter_solutions
-from src.strategies.basic import (NaiveStrategy,MaxFrequencyStrategy)
-from src.strategies.deep_emv import PureDeepEVMStrategy
+from src.analysis.tree_io import (load_tree_from_json)
+from src.core.engine import (calculate_buckets)
+from src.analysis.tree_builder import TreeNode
+
+from src.strategies.deep_evm import (PureDeepEVMStrategy, generate_id)
 from src.strategies.entropy import EntropyStrategy
 
-# Il tipo di dato che estrarremo. Tuple[N, H, M]
-# N = Dimensione Bucket, H = Entropia della miglior mossa, M = Costo Esatto (EVM)
-DataPoint = Tuple[int, float, float]
+from src.core.generator import generate_all_permutations
+from src.core.lookup_table import FeedbackLookup
+    
 
-def generate_random_states(
-    num_samples: int, 
-    max_n: int, 
-    lookup, 
-    all_perms: List[str]
-) -> List[List[str]]:
-    """
-    Simula partite casuali usando una strategia Naive per generare stati di gioco "veri".    
-    PRE: num_samples indica quante partite simulare. max_n è il limite di soluzioni 
-         accettabili per il campione (es. scartiamo N=5000 perché il DeepEVM ci metterebbe anni).
-    POST: Ritorna una lista di insiemi di soluzioni (stati). Ogni stato ha lunghezza <= max_n e > 2.
-    Raccoglie stati unici simulando partite, evitando doppioni tramite frozenset.
-    """
-    unique_states_keys = set()
-    states = []
-    strategy = NaiveStrategy(all_perms, lookup)
 
-    with tqdm(total=num_samples, desc="Campionamento stati unici") as pbar:
-        while len(states) < num_samples:
-            secret = random.choice(all_perms)
-            solutions = all_perms
+DATASET_FILEPATH = Path("data/oracle_dataset.json")
+
+def load_existing_dataset(filepath: Path) -> List[Dict[str, Any]]:
+    """
+    PRE: filepath punta a un eventuale file JSON.
+    POST: Ritorna la lista dei record già calcolati se il file esiste, altrimenti una lista vuota.
+    """
+    if filepath.exists():
+        with open(filepath, "r", encoding="utf-8") as filepath:
+            dataset = json.load(filepath)
+        return dataset
+    return []
+
+def save_dataset(dataset: List[Dict[str, Any]], filepath: Path) -> None:
+    """
+    PRE: dataset lista di dizionari con i campi estratti.
+    POST: Salva su disco formattato con indent=4.
+    """
+    with open(filepath, "w", encoding="utf-8") as filepath:
+        json.dump(dataset, filepath, indent=4)
+
+def print_dataset_statistics(dataset: List[Dict[str, Any]]) -> None:
+    if not dataset:
+        return
+        
+    res_ent = [d["residual_entropy"] for d in dataset]
+    n_max = [d["n_max"] for d in dataset]
+    cost = [d["exact_cost"] for d in dataset]
+
+    print("\n" + "="*55)
+    print(" STATISTICHE DATASET (EDA)")
+    print("="*55)
+    print(f"Campioni Totali Analizzati: {len(dataset)}")
+    print(f"{'Feature':<20} | {'Media':<7} | {'Var':<7} | {'Min':<5} | {'Max':<5}")
+    print("-" * 55)
+    print(f"{'Entropia Residua':<20} | {np.mean(res_ent):.3f} | {np.var(res_ent):.3f} | {np.min(res_ent):.2f} | {np.max(res_ent):.2f}")
+    print(f"{'N_max (Caso Peggiore)':<20} | {np.mean(n_max):.3f} | {np.var(n_max):.3f} | {np.min(n_max):.0f} | {np.max(n_max):.0f}")
+    print(f"{'Costo Esatto (M)':<20} | {np.mean(cost):.3f} | {np.var(cost):.3f} | {np.min(cost):.2f} | {np.max(cost):.2f}")
+
+
+def calculate_k_constants_from_dataset(dataset: List[Dict[str, Any]]) -> Tuple[float, float]:
+    """
+    Estrae le matrici X e Y dal dataset e lancia np.linalg.lstsq
+    """
+    # 1. Prepara i vettori Y e X
+    Y = []
+    X = []
+
+    for data in dataset:
+        Y.append(data["exact_cost"]-1)
+        X.append([data["residual_entropy"], data["n_max"]])
+
+
+    np_Y = np.array(Y)
+    np_X = np.array(X)
+
+    coefficent, residual, ran, s = np.linalg.lstsq(np_X,np_Y, rcond=None)
+
+    K1 = coefficent[0]
+    K2 = coefficent[1]
+
+    return float(K1), float(K2)
+        
+def mine_state_from_tree(
+    tree: TreeNode, 
+    min_bound: int = 3, 
+    max_bound: int = 40,
+    collected_states: List[List[str]] = None,
+    seen_ids: set = None
+    ) -> List[List[str]]:
+    if collected_states is None:
+        collected_states = []
+    if seen_ids is None:
+        seen_ids = set()
+
+    solutions = tree["possible_solutions"]
+    num_sol = len(solutions)
+
+    if min_bound<= num_sol <= max_bound:
+        state_id = generate_id(solutions)
+        if state_id not in seen_ids:
+            seen_ids.add(state_id)
+            collected_states.append(solutions)
+
+    for child in tree["children"].values():
+        if child is not None:
+            mine_state_from_tree(child,min_bound,max_bound,collected_states,seen_ids)
+
+    return collected_states
             
-            while True:
-                guess = strategy.choose_guess(solutions)
-                if guess == secret:
-                    break
-
-                solutions = filter_solutions(guess, lookup.get_feedback(guess, secret), solutions, lookup)
-                num_solutions = len(solutions)
-
-                if 2 < num_solutions <= max_n:
-                    key = frozenset(solutions)
-                    if key not in unique_states_keys:
-                        unique_states_keys.add(key)
-                        states.append(solutions)
-                        pbar.update(1)
-                    break 
-
-    return states
-
-def generate_random_states(
-    num_samples: int, 
-    max_n: int, 
-    lookup, 
-    all_perms: List[str]
-) -> List[List[str]]:
-    """
-    Simula partite casuali usando una strategia Naive per generare stati di gioco "veri".
-    
-    PRE: num_samples indica quante partite simulare. max_n è il limite di soluzioni 
-         accettabili per il campione (es. scartiamo N=5000 perché il DeepEVM ci metterebbe anni).
-    POST: Ritorna una lista di insiemi di soluzioni (stati). Ogni stato ha lunghezza <= max_n e > 2.
-    """
-    unique_keys = set()
-    states = []
-    strategy = EntropyStrategy(all_perms, lookup)
-
-    with tqdm(total=num_samples, desc="1/2 Raccolta Stati", unit="stati") as pbar:
-        while len(states) < num_samples:
-            secret = random.choice(all_perms)
-            solutions = all_perms
-            
-            while True:
-                guess = strategy.choose_guess(solutions)
-                if guess == secret:
-                    break
-
-                solutions = filter_solutions(guess, lookup.get_feedback(guess, secret), solutions, lookup)
-                num_solutions = len(solutions)
-
-                # Se abbiamo trovato un bucket della dimensione desiderata
-                if 2 < num_solutions <= max_n:
-                    key = frozenset(solutions)
-                    if key not in unique_keys:
-                        unique_keys.add(key)
-                        states.append(solutions)
-                        pbar.update(1)
-                    break # Passa alla prossima partita
-
-    return states
-
-def extract_metrics_for_state_old(
-    state: List[str], 
-    entropy_strategy, 
-    exact_strategy
-) -> DataPoint:
-    """
-    Per un dato stato di gioco (es. 15 soluzioni), calcola i parametri dell'equazione.
-    
-    PRE: state è una lista di soluzioni rimaste. Entrambe le strategie sono istanziate.
-    POST: Ritorna la tripla (N, H, M).
-          - N = len(state)
-          - H = l'entropia della miglior mossa scelta da entropy_strategy.
-          - M = il costo esatto calcolato da exact_strategy._compute_exact_cost(state).
-    """
-    #return (DataPoint (len(state), max(entropy_strategy.evaluate_candidates(state,entropy_strategy.all_permutations).values()), exact_strategy._compute_exact_cost(state)))
-
-    candidates_scores = entropy_strategy.evaluate_candidates(entropy_strategy.all_permutations, state)
-    max_entropy = max(candidates_scores.values())
-    exact_cost = exact_strategy._compute_exact_cost(state)
-    return (len(state), max_entropy, exact_cost)
-    
-def calculate_k_constant_old(dataset: List[DataPoint]) -> float:
-    """
-    Applica il metodo dei Minimi Quadrati per trovare la costante K che minimizza
-    la differenza tra [1 + K * (log2(N) - H)] e [M].
-    
-    PRE: dataset è la lista delle triple raccolte.
-    POST: Ritorna la costante 'K' (float) ottimizzata e stampa le statistiche di errore (MSE).
-    """
-    sum_XY = 0
-    sum_X2 = 0
-
-    for n, h, m in dataset:
-        y = m - 1
-        x = math.log2(n)-h
-
-        sum_XY += x*y
-        sum_X2 += x**2
-
-    return sum_XY/sum_X2
-
 def extract_metrics_for_state(
-    state: List[str], 
+    possible_solutions: List[str], 
     entropy_strategy: EntropyStrategy, 
-    exact_strategy: PureDeepEVMStrategy,
-    pbar=None
-) -> DataPoint:
-    """
-    Estrae le 4 metriche aggiornando lo stato testuale sulla barra principale.
+    exact_strategy: PureDeepEVMStrategy
+) -> Dict[str, Any]:
+    num_sol= len(possible_solutions)
     
-    PRE: state, strategie valide.
-    POST: Ritorna la tupla (N, Entropia_Residua, N_max, M).
-          - N: len(state).
-          - Entropia_Residua: (log2(N) - H) calcolata sulla mossa migliore.
-          - N_max: La len() massima tra i bucket della mossa migliore.
-          - M: il costo esatto dal DeepEVM.
-    """
-    # 1. Trova N e notifica la barra
+    entropy_move = entropy_strategy.choose_guess(possible_solutions,["bypass_signaturne"])
+    buckets =calculate_buckets(entropy_move,possible_solutions,entropy_strategy.lookup)
     
-    # 2. Ottieni la mossa suggerita dall'entropia
-    # NOTA: Devi usare .choose_guess() per trovare *quale* candidata è la migliore,
-    # poi usi calculate_buckets su quella candidata per calcolare H e N_max.
-    
-    # 3. Calcola l'Entropia_Residua e N_max per quella specifica mossa
-    
-    # 4. Calcola M esatto con exact_strategy e ritorna la tupla
-    pass
+    n_max = len(max(buckets.values(), key= len))
 
-    entropy_strategy.choose_guess(state,["0123"])#voglio evitare che faccia le firme 
-    exact_cost = exact_strategy._compute_exact_cost(state)
+    probabilities = [len(s)/num_sol for s in buckets.values()]
+    h = -sum(p * math.log2(p) for p in probabilities if p != 0)
+    residual_entropy = math.log2(num_sol)-h
 
-    return (len(state), candidates_scores, )
+    exact_cost = exact_strategy._compute_exact_cost(possible_solutions)
 
-def calculate_k_constants(dataset: List[DataPoint]) -> Tuple[float, float]:
-    """
-    Applica i Minimi Quadrati Multipli (NumPy) per risolvere:
-    (M - 1) = K1 * EntropiaResidua + K2 * N_max
-    
-    PRE: dataset è una lista valida di DataPoints.
-    POST: Ritorna (K1, K2).
-    """
-    # 1. Crea le liste (vettori) per Y (M - 1.0)
-    # 2. Crea la matrice X dove ogni riga è [EntropiaResidua, N_max]
-    # 3. Usa np.linalg.lstsq(X, Y, rcond=None)[0] per ottenere K1 e K2
-    pass
+    return {
+        "id" : generate_id(possible_solutions), 
+        "n" : len(possible_solutions), 
+        "residual_entropy": residual_entropy,
+        "n_max": n_max,
+        "exact_cost": exact_cost
+        }
 
 def main():
-    print("Inizializzazione ambiente...")
+    print("Avvio Laboratorio EVM...")
+
+    # ==========================================
+    # 1. Caricamento Dataset e Setup Setaccio
+    # ==========================================
+    dataset = load_existing_dataset(DATASET_FILEPATH)
+    # Estraiamo tutti gli id già salvati in passato per non ricalcolarli
+    already_seen_ids = set([data["id"] for data in dataset])
+    
+    print(f"Dataset caricato: {len(dataset)} record già presenti su disco.")
+
+    # ==========================================
+    # 2. Mining degli Alberi
+    # ==========================================
+    print("Estrazione bivi dall'albero in corso...")
+    tree = load_tree_from_json("data/trees/max_entropy.json") 
+    
+    # Passiamo il setaccio! Così non estrae stati che sono già nel dataset.
+    data_to_evaluate = mine_state_from_tree(tree, min_bound=3, max_bound=20, seen_ids=already_seen_ids)
+    
+    print(f"Trovati {len(data_to_evaluate)} NUOVI stati da analizzare.")
+
+
+    # ==========================================
+    # 3. Inizializzazione Ambiente (Veloce)
+    # ==========================================
+    print(f"Inizializzazione ambiente ")
     all_perms = generate_all_permutations()
     lookup = FeedbackLookup(all_perms)
-    lookup.get_feedback(all_perms[0], all_perms[0]) 
-
+    lookup.get_feedback(all_perms[0], all_perms[0]) # Lazy init
+    tablebase = {data["id"]: data["exact_cost"] for data in dataset}
+    
     entropy_strategy = EntropyStrategy(all_perms, lookup)
-    exact_strategy = PureDeepEVMStrategy(all_perms, lookup, entropy_strategy)
+    exact_strategy = PureDeepEVMStrategy(all_perms, lookup, entropy_strategy, tablebase)
 
-    # 1. Raccolta di stati unici con barra
-    target_samples = 80
-    max_solutions_threshold = 20
-    random_states = generate_random_states(target_samples, max_solutions_threshold, lookup, all_perms)
 
-    # 2. Estrazione metriche con barra di avanzamento
-    dataset: List[DataPoint] = []
-    for state in tqdm(random_states, desc="Analisi EVM ed Entropia"):
-        metrics = extract_metrics_for_state(state, entropy_strategy, exact_strategy)
-        dataset.append(metrics)
+    # ==========================================
+    # 4. Calcolo Pesante (con salvataggio incrementale)
+    # ==========================================
+    if len(data_to_evaluate) > 0:
+        # Usiamo tqdm per vedere la barra
+        for i, state in enumerate(tqdm(data_to_evaluate, desc="Calcolo Deep EVM")):
+            
+            # Estraiamo i 4 valori magici
+            record = extract_metrics_for_state(state, entropy_strategy, exact_strategy)
+            dataset.append(record)
+            
+            # Salviamo su disco ogni 5 iterazioni per non perdere i dati se si blocca!
+            if i % 5 == 0:
+                save_dataset(dataset, DATASET_FILEPATH)
+                
+        # Salvataggio finale
+        save_dataset(dataset, DATASET_FILEPATH)
 
-    # 3. Risoluzione della costante
-    k_value = calculate_k_constant(dataset)
-    print(f"\n==========================================")
-    print(f" Costante K Ottimale Trovata: {k_value:.4f}")
-    print(f" Formula: Stima = 1.0 + {k_value:.4f} * (log2(N) - H)")
-    print(f"==========================================")
-
+    # ==========================================
+    # 5. Stampa e Regressione Finale
+    # ==========================================
+    if len(dataset) < 2:
+        print("Servono almeno 2 campioni nel dataset per fare la regressione.")
+        return
+        
+    print_dataset_statistics(dataset)
+    
+    k1, k2 = calculate_k_constants_from_dataset(dataset)
+    print("\n" + "="*50)
+    print("ORACOLO ADDESTRATO CON SUCCESSO")
+    print("="*50)
+    print(f" Formula: Costo = 1.0 + ({k1:.4f} * Entropia_Residua) + ({k2:.4f} * N_max)")
+    print("="*50)
 
 if __name__ == "__main__":
     main()

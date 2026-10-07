@@ -4,7 +4,7 @@ Contiene la strategia EVM Ricorsiva Pura.
 Garantisce la ricerca del minimo matematico assoluto senza approssimazioni.
 Ottimizzata esclusivamente tramite Memoization (Cache) e Branch & Bound rigoroso.
 """
-from typing import List, Dict, FrozenSet
+from typing import List, Dict, FrozenSet, Optional
 from math import inf
 from src.strategies.base import BaseStrategy
 from src.core.constants import DIM
@@ -14,7 +14,7 @@ from src.core.signatures import get_representatives
 
 class PureDeepEVMStrategy(BaseStrategy):
 
-    def __init__(self, all_permutations: List[str], lookup, warmup_strategy: BaseStrategy):
+    def __init__(self, all_permutations: List[str], lookup, warmup_strategy: BaseStrategy, precomputed_tablebase: Optional[Dict[str, float]] = None):
         """
         Inizializza la strategia EVM pura.
         PRE: warmup_strategy è usata SOLO per trovare un primo limite superiore (Upper Bound)
@@ -22,6 +22,7 @@ class PureDeepEVMStrategy(BaseStrategy):
         """
         super().__init__(all_permutations, lookup)
         self.warmup_strategy = warmup_strategy
+        self.precomputed_tablebase = precomputed_tablebase or {}
         self.cost_cache: Dict[FrozenSet[str], float] = {}
 
     def _compute_exact_cost(self, solutions: List[str], best_known_bound: float = float('inf')) -> float:
@@ -41,6 +42,10 @@ class PureDeepEVMStrategy(BaseStrategy):
             return 1
         elif num_solutions == 2:
             return 1.5
+
+        id_state = generate_id(solutions)
+        if id_state in self.precomputed_tablebase:
+            return self.precomputed_tablebase[id_state]
 
         key = frozenset(solutions)
         if key in self.cost_cache:
@@ -137,3 +142,7 @@ class PureDeepEVMStrategy(BaseStrategy):
                         guess = candidate
 
             return guess
+
+
+def generate_id(state:List[str]):
+        return ",".join(sorted(state))

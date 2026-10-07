@@ -37,6 +37,12 @@ class HybridWeightedStrategy(BaseStrategy):
         """
         if is_higher_better:
             best_score= max(scores.values())
+
+            #quick fix bug
+            if best_score == 0:
+                best_score=1
+            #----
+            
             return {c: s/best_score for c, s in scores.items()}
         else:
             best_score = min(scores.values())
