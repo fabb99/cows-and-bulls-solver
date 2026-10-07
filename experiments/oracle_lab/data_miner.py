@@ -20,7 +20,7 @@ from src.strategies.deep_evm import generate_id
 OUTPUT_FILEPATH = Path("data/raw_states.json")
 TREES_DIR = Path("data/trees")
 
-def load_raw_states(filepath: Path) -> Dict[str, Any]:
+def load_raw_states(filepath: Path) -> Dict[str, RawState]:
     """
     PRE: filepath punta all'eventuale file JSON dei dati grezzi.c
     POST: Ritorna il dizionario degli stati già estratti, oppure un dizionario vuoto.

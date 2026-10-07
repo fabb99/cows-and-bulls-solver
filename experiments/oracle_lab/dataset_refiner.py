@@ -100,10 +100,10 @@ def main():
     """
     raw_states = load_raw_states(RAW_STATES_FILEPATH)
 
-    print(f"Inizializzazione ambiente ")
     all_perms = generate_all_permutations()
     lookup = FeedbackLookup(all_perms)
     lookup.get_feedback(all_perms[0], all_perms[0]) # Lazy init
+    print(f"Inizializzazione ambiente effettuata")
 
     entropy_strategy = EntropyStrategy(all_perms,lookup)
 
