@@ -11,6 +11,9 @@ from pathlib import Path
 import json
 from tqdm import tqdm
 
+from experiments.oracle_lab.models import RawState
+from experiments.oracle_lab.data_miner import (load_raw_states, save_raw_states)
+
 from src.core.generator import generate_all_permutations
 from src.core.lookup_table import FeedbackLookup
 from src.strategies.entropy import EntropyStrategy
@@ -29,21 +32,20 @@ def load_json_data(filepath: Path) -> Dict[str, Any]:
     PRE: filepath punta a un eventuale file JSON esistente.
     POST: Ritorna il dizionario deserializzato se il file esiste, altrimenti {}.
     """
-    pass
+    return load_raw_states(filepath)
 
 
-def save_json_data(data: Dict[str, Any], filepath: Path) -> None:
+def save_json_data(data: Dict[str, RawState], filepath: Path) -> None:
     """
     Salva il dizionario dei dati su file JSON in modo formattato.
     
     PRE: data è un dizionario valido serializzabile in JSON.
     POST: Sovrascrive il file specificato con indent=4.
     """
-    pass
-
+    save_raw_states(data, filepath)
 
 def refine_states(
-    raw_states: Dict[str, Any], 
+    raw_states: Dict[str, RawState], 
     exact_strategy: PureDeepEVMStrategy, 
     max_n: int = MAX_REFINE_N,
     save_interval: int = SAVE_INTERVAL
@@ -59,21 +61,30 @@ def refine_states(
         - Aggiorna sul posto (in-place) i record di raw_states dove exact_cost < best_cost_m.
         - Ritorna il numero totale di stati che sono stati migliorati.
     """
-    # 1. Filtra da raw_states solo gli elementi con 2 < n <= max_n
+
+    states_to_evaluate = [s for s in raw_states.values() if 2 < s.n <= max_n]    
+
+    count_improvement = 0
     
-    # 2. Inizializza un contatore per i miglioramenti trovati
-    
-    # 3. Avvia il ciclo con tqdm sugli elementi filtrati:
-    #    a. Estrai la lista delle soluzioni dell'elemento corrente.
-    #    b. Calcola il costo esatto chiamando exact_strategy._compute_exact_cost(solutions).
-    #    c. Confronta: se costo_esatto < record['best_cost_m']:
-    #       - Sovrascrivi record['best_cost_m'] = costo_esatto
-    #       - Aggiorna record['source_tree'] = 'pure_deep_evm'
-    #       - Incrementa il contatore dei miglioramenti
-    #    d. Salvataggio incrementale: ogni save_interval iterazioni, chiama save_json_data.
-    
-    # 4. Ritorna il numero di miglioramenti trovati
-    pass
+    if len(states_to_evaluate) > 0:
+        for i, state in enumerate(tqdm(states_to_evaluate, desc="Calcolo Deep EVM")):
+
+            if state.source_tree != "exact_strategy":
+
+                exact_cost = exact_strategy._compute_exact_cost(state.solutions)
+
+                if exact_cost <= state.best_cost:
+                    if exact_cost < state.best_cost:
+                        count_improvement += 1
+                    state.best_cost = exact_cost
+                state.source_tree = "exact_strategy"
+
+            if i % save_interval == 0:
+                save_json_data(raw_states,RAW_STATES_FILEPATH)
+
+    save_json_data(raw_states,RAW_STATES_FILEPATH)
+
+    return count_improvement
 
 
 def main():
@@ -87,7 +98,24 @@ def main():
     6. Salva definitivamente i dati aggiornati su data/raw_states.json.
     7. Stampa un riepilogo con gli stati analizzati e i miglioramenti ottenuti.
     """
-    pass
+    raw_states = load_raw_states(RAW_STATES_FILEPATH)
+
+    print(f"Inizializzazione ambiente ")
+    all_perms = generate_all_permutations()
+    lookup = FeedbackLookup(all_perms)
+    lookup.get_feedback(all_perms[0], all_perms[0]) # Lazy init
+
+    entropy_strategy = EntropyStrategy(all_perms,lookup)
+
+    already_perfected = { 
+        s.state_id: s.best_cost 
+        for s in raw_states.values() 
+        if s.source_tree == "exact_strategy"
+        }
+    exact_strategy = PureDeepEVMStrategy(all_perms, lookup, entropy_strategy, already_perfected)
+
+    num_improvement = refine_states(raw_states,exact_strategy)
+    print(f"Migliorati {num_improvement} stati")
 
 
 if __name__ == "__main__":

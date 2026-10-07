@@ -1,5 +1,5 @@
 """
-Modulo: 1_data_miner (Script)
+Modulo: data_miner (Script)
 Fase 1 della Pipeline:
 Estrae tutti i bivi (da N=3 a 5040) da tutti gli alberi decisionali in data/trees/.
 Per ciascun bivio memorizza il miglior costo reale (average_depth) trovato tra tutti gli alberi.
@@ -27,21 +27,21 @@ def load_raw_states(filepath: Path) -> Dict[str, Any]:
     """
     if filepath.exists():
         with open(filepath, "r", encoding="utf-8") as file:
-            dataset = json.load(file)
-        return dataset
+            dataset = json.load(file)     
+        return RawState.from_dict({state_id :RawState.from_dict(record) for state_id, record in dataset.item()})
     return {}
 
-def save_raw_states(data: Dict[str, Any], filepath: Path) -> None:
+def save_raw_states(data: Dict[str, RawState], filepath: Path) -> None:
     """
     PRE: data è il dizionario degli stati unici.
     POST: Salva su disco con indent=4.
     """
     with open(filepath, "w", encoding="utf-8") as file:
-            json.dump(data, file, indent=4)
+        json.dump({state_id: state.to_dict() for state_id, state in data.items()} , file, indent=4)
 
 def mine_tree_recursive(
     node: TreeNode, 
-    raw_states: Dict[str, Any], 
+    raw_states: Dict[str, RawState], 
     tree_name: str,
     min_n: int = 3, 
     max_n: int = 5040
@@ -59,17 +59,13 @@ def mine_tree_recursive(
     num_sol = len(solutions)
 
     if min_n <= num_sol <= max_n:
-        state_id = generate_id(solutions)
+        new_state = RawState(solutions, cost, tree_name)
+        state_id = new_state.state_id
         cost = average_depth(node)
         
         # Se non c'è o se questo albero ha trovato un costo minore viene aggiornato
-        if state_id not in raw_states or cost < raw_states[state_id]["best_cost"]:
-            raw_states[state_id] = {
-                "n": num_sol,
-                "solutions": solutions,
-                "best_cost": cost,
-                "best_strategy": tree_name
-            }
+        if state_id not in raw_states or cost < raw_states[state_id].best_cost:
+            raw_states[state_id] = new_state
 
     for child in node["children"].values():
         if child is not None:
@@ -93,10 +89,10 @@ def main():
     print("Estrazione stati dagli alberi in corso...")
     
     # 2. Cicla su tutti gli alberi e accumula nello STESSO dizionario raw_states!
-    for tree_json in TREES_DIR.glob("*.json"):
-        tree_name = tree_json.stem
+    for tree_path in TREES_DIR.glob("*.json"):
+        tree_name = tree_path.stem
         print(f"- Mining dell'albero: {tree_name}...")
-        tree_data = load_tree_from_json(str(tree_json))
+        tree_data = load_tree_from_json(str(tree_path))
         
         # Passiamo lo stesso dizionario raw_states che continua a riempirsi:
         mine_tree_recursive(tree_data, raw_states, tree_name, min_n=3, max_n=5040)
