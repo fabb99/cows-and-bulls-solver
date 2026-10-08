@@ -28,7 +28,7 @@ def load_raw_states(filepath: Path) -> Dict[str, RawState]:
     if filepath.exists():
         with open(filepath, "r", encoding="utf-8") as file:
             dataset = json.load(file)     
-        return RawState.from_dict({state_id :RawState.from_dict(record) for state_id, record in dataset.item()})
+        return {state_id :RawState.from_dict(record) for state_id, record in dataset.items()}
     return {}
 
 def save_raw_states(data: Dict[str, RawState], filepath: Path) -> None:
@@ -59,9 +59,10 @@ def mine_tree_recursive(
     num_sol = len(solutions)
 
     if min_n <= num_sol <= max_n:
+        cost = average_depth(node)
         new_state = RawState(solutions, cost, tree_name)
         state_id = new_state.state_id
-        cost = average_depth(node)
+        
         
         # Se non c'è o se questo albero ha trovato un costo minore viene aggiornato
         if state_id not in raw_states or cost < raw_states[state_id].best_cost:

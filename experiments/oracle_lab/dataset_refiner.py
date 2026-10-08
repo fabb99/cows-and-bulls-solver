@@ -21,7 +21,7 @@ from src.strategies.deep_evm import PureDeepEVMStrategy
 
 # Percorsi e configurazioni del laboratorio
 RAW_STATES_FILEPATH = Path("data/raw_states.json")
-MAX_REFINE_N: int = 20        # Limite massimo di dimensione per il calcolo esatto
+MAX_REFINE_N: int = 10        # Limite massimo di dimensione per il calcolo esatto
 SAVE_INTERVAL: int = 25       # Salva su disco ogni N stati per prevenire perdite di dati
 
 

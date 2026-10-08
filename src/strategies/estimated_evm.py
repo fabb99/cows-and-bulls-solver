@@ -13,10 +13,11 @@ from src.core.signatures import get_representatives
 
 class EstimatedEVMStrategy(BaseStrategy):
 
-
-    K0_BASE: float = 1.8769
-    K1_FACTOR: float = 0.4659
-
+# I parametri perfetti unificati (R² = 87.88%)
+    K0: float = 1.5824
+    K_LOG_N: float = 0.1240
+    K_LOG_NMAX: float = 0.1657
+    K_ENTROPY: float = 0.07139
 
 
     def __init__(
@@ -26,30 +27,54 @@ class EstimatedEVMStrategy(BaseStrategy):
         exact_fallback_strategy: BaseStrategy,
         fallback_threshold: int = 0,
 
-        k0_base: float = K0_BASE,
-        k1_factor: float = K1_FACTOR
+
     ):
         super().__init__(all_permutations, lookup)
         self.exact_fallback_strategy = exact_fallback_strategy
         self.fallback_threshold = fallback_threshold
-        self.k0_base = k0_base
-        self.k1_factor = k1_factor
+   
 
 
-    def _estimate_cost(self, entropy: float, num_solutions: int, candidate_is_valid: bool) -> float:
-        """
-        Calcola l'aspettativa dell'intera mossa tramite l'entropia residua e la penalità del caso peggiore.
-        """
+    def _estimate_cost(self, entropy: float, num_solutions: int, n_max: int, candidate_is_valid: bool) -> float:
         if num_solutions == 1:
             return 1.0
         elif num_solutions == 2:
             return 1.5
-        residual_entropy = log2(num_solutions) - entropy
-        
-        cost = self.k0_base + (self.k1_factor * residual_entropy)
-        if candidate_is_valid: 
-            return cost - (1.0 / num_solutions)
+
+        # Se n_max è 1, log2(1) fa 0.0. Per sicurezza usiamo max(1, n_max)
+        # log_nmax = log2(max(1, n_max))
+        log_nmax = log2(n_max)
+        log_n = log2(num_solutions)
+
+        # L'Equazione Unificata Entropia-Minimax:
+        cost = (
+            self.K0 
+            + (self.K_LOG_N * log_n) 
+            + (self.K_LOG_NMAX * log_nmax) 
+            - (self.K_ENTROPY * entropy)
+        )
+
+        # Bonus colpo diretto se la mossa è una soluzione valida
+        if candidate_is_valid:
+            cost -= (1.0 / num_solutions)
+
         return cost
+
+
+    # def _estimate_cost(self, entropy: float, num_solutions: int, candidate_is_valid: bool) -> float:
+    #     """
+    #     Calcola l'aspettativa dell'intera mossa tramite l'entropia residua e la penalità del caso peggiore.
+    #     """
+    #     if num_solutions == 1:
+    #         return 1.0
+    #     elif num_solutions == 2:
+    #         return 1.5
+    #     residual_entropy = log2(num_solutions) - entropy
+        
+    #     cost = self.k0_base + (self.k1_factor * residual_entropy)
+    #     if candidate_is_valid: 
+    #         return cost - (1.0 / num_solutions)
+    #     return cost
 
     def evaluate_candidates(self, candidates_to_test: List[str], possible_solutions: List[str]) -> Dict[str, float]:
         """
@@ -64,10 +89,11 @@ class EstimatedEVMStrategy(BaseStrategy):
             
             probabilities = [len(s) / num_solutions for s in buckets.values()]
             entropy = -sum(p * log2(p) for p in probabilities if p > 0)
+            n_max = max(len(s) for s in buckets.values())
             
             
             is_valid = candidate in possible_solutions
-            scores_of_candidates[candidate] = self._estimate_cost(entropy, num_solutions, is_valid)
+            scores_of_candidates[candidate] = self._estimate_cost(entropy, num_solutions,n_max, is_valid)
                         
         return scores_of_candidates
 

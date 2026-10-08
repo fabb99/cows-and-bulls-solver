@@ -44,9 +44,9 @@ def print_exploratory_analysis(dataset: List[FeatureRecord]) -> None:
     #    - res_ent = np.array([r.residual_entropy for r in dataset])
     #    - n_max = np.array([r.n_max for r in dataset])
     #    - target_m = np.array([r.target_cost for r in dataset])
-    n_vals = np.array([r.n for r in dataset])
+    n_vals = np.array([np.log2(r.n) for r in dataset])
     res_ent = np.array([r.residual_entropy for r in dataset])
-    n_max = np.array([r.n_max for r in dataset])
+    n_max = np.array([np.log2(r.n_max) for r in dataset])
     target_m = np.array([r.target_cost for r in dataset])
 
     # 2. Stampa la tabella formattata calcolando np.mean, np.std, np.min, np.max per ciascun vettore.
@@ -148,8 +148,8 @@ def main():
 
     print_exploratory_analysis(dataset)
 
-    x_n = np.array([state.n for state in dataset])
-    x_n_max = np.array([state.n_max for state in dataset])
+    x_n = np.array([np.log2(state.n) for state in dataset])
+    x_n_max = np.array([np.log2(state.n_max) for state in dataset])
     x_residual_entropy = np.array([state.residual_entropy for state in dataset])
     
     y_targets = np.array([state.target_cost for state in dataset])

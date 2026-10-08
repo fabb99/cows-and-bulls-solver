@@ -70,7 +70,7 @@ def print_comparison_dashboard(reports: dict[str, dict[str, any]]):
         
     print("=" * len(header) + "\n")
 
-    print_comparison_dashboard_extend(reports)
+    #print_comparison_dashboard_extend(reports)
     #print_vertical_distribution_dashboard(reports)
 
 def print_comparison_dashboard_extend(reports: dict[str, dict[str, any]]):
