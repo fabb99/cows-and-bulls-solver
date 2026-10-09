@@ -29,9 +29,9 @@ def setup_strategies(all_perms, lookup) -> dict[str, BaseStrategy]:
         # "max_frequency": MaxFrequencyStrategy(all_perms, lookup),
         # "greedy_minimax": GreedyMinimaxStrategy(all_perms,lookup),
         # "max_entropy": EntropyStrategy(all_perms,lookup), 
-        # "hybrid_eg_5050": HybridWeightedStrategy(EntropyStrategy(all_perms,lookup),GreedyMinimaxStrategy(all_perms,lookup),True,False,50,50,lookup),
+        # "hybrid_eg_9406": HybridWeightedStrategy(EntropyStrategy(all_perms,lookup),GreedyMinimaxStrategy(all_perms,lookup),True,False,94,6,lookup),
         # "pure_deep_emv": PureDeepEVMStrategy(all_perms,lookup, EntropyStrategy(all_perms,lookup)),
-        "estimated_evm_t0": EstimatedEVMStrategy(all_perms,lookup,PureDeepEVMStrategy(all_perms,lookup, EntropyStrategy(all_perms,lookup)),fallback_threshold=0),
+        "estimated_evm_t0": EstimatedEVMStrategy(all_perms,lookup,PureDeepEVMStrategy(all_perms,lookup, EntropyStrategy(all_perms,lookup)),fallback_threshold=10),
         
     }
     return strategies

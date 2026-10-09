@@ -43,20 +43,23 @@ class RawState:
 @dataclass(slots=True)
 class FeatureRecord:
     """
-    Rappresenta un campione arricchito pronto per il Machine Learning (EDA e Regressione).
+    Rappresenta la Carta d'Identità Geometrica di un singolo Bucket (insieme di soluzioni).
+    Contiene le metriche intrinseche necessarie per addestrare il Regressore di Difficoltà.
     
-    Attributi:
-        state_id: L'identificatore univoco dello stato.
-        n: Numero di soluzioni (dimensione del gruppo).
-        residual_entropy: Incertezza residua (log2(N) - H).
-        n_max: Dimensione del bucket peggiore della mossa migliore.
-        target_cost: Il costo reale da prevedere (M).
-        source_tree: Strategia di provenienza del costo.
+    Campi:
+        state_id: Chiave univoca ordinata delle soluzioni.
+        n: Dimensione assoluta del bucket (|b|).
+        log_n: Dimensione informativa log2(n).
+        unique_digits_ratio: Rapporto di cifre uniche distinte presenti nel gruppo (tra 0.4 e 1.0).
+        column_entropy: Entropia posizionale media calcolata sulle 4 colonne.
+        target_cost: Il costo medio reale (M) per risolvere questo specifico bucket.
+        source_tree: La strategia che ha generato il miglior costo per questo bucket.
     """
     state_id: str
     n: int
-    residual_entropy: float
-    n_max: int
+    log_n: float
+    unique_digits_ratio: float
+    column_entropy: float
     target_cost: float
     source_tree: str
 

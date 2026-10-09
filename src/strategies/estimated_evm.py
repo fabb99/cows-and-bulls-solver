@@ -14,10 +14,10 @@ from src.core.signatures import get_representatives
 class EstimatedEVMStrategy(BaseStrategy):
 
 # I parametri perfetti unificati (R² = 87.88%)
-    K0: float = 1.5824
-    K_LOG_N: float = 0.1240
-    K_LOG_NMAX: float = 0.1657
-    K_ENTROPY: float = 0.07139
+    K0: float = 1.5810
+    K_LOG_N: float = 0.1244
+    K_LOG_NMAX: float = 0.1639
+    K_ENTROPY: float = 0.0730
 
 
     def __init__(
@@ -45,13 +45,14 @@ class EstimatedEVMStrategy(BaseStrategy):
         # log_nmax = log2(max(1, n_max))
         log_nmax = log2(n_max)
         log_n = log2(num_solutions)
+        residual_entropy = log_n - entropy
 
         # L'Equazione Unificata Entropia-Minimax:
         cost = (
             self.K0 
             + (self.K_LOG_N * log_n) 
             + (self.K_LOG_NMAX * log_nmax) 
-            - (self.K_ENTROPY * entropy)
+            + (self.K_ENTROPY * residual_entropy)
         )
 
         # Bonus colpo diretto se la mossa è una soluzione valida

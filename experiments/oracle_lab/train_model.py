@@ -155,7 +155,7 @@ def main():
     y_targets = np.array([state.target_cost for state in dataset])
 
     #MODELLO per ora solo uno
-    coeff, metrics = train_linear_model(np.column_stack([x_n, x_n_max, x_residual_entropy]), y_targets)
+    coeff, metrics = train_linear_model(np.column_stack([x_n, x_n_max,x_residual_entropy]), y_targets)
 
     print(f"Coefficenti =  {coeff}")
     print(f"metriche = {metrics}" )
