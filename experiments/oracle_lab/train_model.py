@@ -130,18 +130,7 @@ def train_linear_model(
     return (coeffs, metrics)
 
 
-
 def main():
-    """
-    Punto di ingresso principale della Fase 4:
-    1. Carica il dataset tipizzato da FEATURES_DATASET_FILEPATH con load_dataset.
-    2. Stampa l'EDA completa chiamando print_exploratory_analysis.
-    3. Prepara il vettore target Y (i costi reali target_cost).
-    4. Allena il MODELLO 1 (Solo Entropia Residua con Intercetta: Costo = K0 + K1 * Delta_H).
-    5. Allena il MODELLO 2 (Entropia Residua + N_max con Intercetta: Costo = K0 + K1 * Delta_H + K2 * N_max).
-    6. Stampa una tabella comparativa affiancando i due modelli con le metriche MAE, RMSE e R².
-    7. Stampa la formula matematica definitiva pronta da copiare dentro EstimatedEVMStrategy.
-    """
     """
     Punto di ingresso principale della Fase 4:
     1. Carica il dataset da FEATURES_DATASET_FILEPATH.

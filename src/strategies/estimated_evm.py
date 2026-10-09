@@ -5,7 +5,7 @@ Usa la formula di regressione dell'Oracolo (Entropia Residua) per i grandi numer
 e delega a PureDeepEVM per il finale di partita (Endgame Tablebase).
 """
 from math import inf, log2
-from typing import List, Dict
+from typing import List, Dict, Optional
 from src.strategies.base import BaseStrategy
 from src.core.constants import DIM
 from src.core.engine import calculate_buckets
@@ -18,7 +18,7 @@ class EstimatedEVMStrategy(BaseStrategy):
         all_permutations: List[str], 
         lookup, 
         estimator: BaseBucketEstimator,
-        exact_fallback_strategy: BaseStrategy,
+        exact_fallback_strategy: Optional[BaseStrategy] = None,
         fallback_threshold: int = 0,
 
 
