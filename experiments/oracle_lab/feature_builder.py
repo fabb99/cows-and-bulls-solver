@@ -17,10 +17,7 @@ from tqdm import tqdm
 from experiments.oracle_lab.models import RawState, FeatureRecord
 from experiments.oracle_lab.data_miner import load_raw_states
 
-from src.core.generator import generate_all_permutations
-from src.core.lookup_table import FeedbackLookup
-from src.core.engine import calculate_buckets
-from src.strategies.entropy import EntropyStrategy
+from src.core.constants import DIM , BASE
 
 # Percorsi e configurazioni
 RAW_STATES_FILEPATH = Path("data/raw_states.json")
@@ -41,7 +38,6 @@ def load_features_dataset(filepath: Path) -> List[FeatureRecord]:
         return [FeatureRecord.from_dict(record) for record in dataset]
     return []
 
-
 def save_features_dataset(dataset: List[FeatureRecord], filepath: Path) -> None:
     """
     Serializza la lista di FeatureRecord in formato JSON.
@@ -52,71 +48,81 @@ def save_features_dataset(dataset: List[FeatureRecord], filepath: Path) -> None:
     with open(filepath, "w", encoding="utf-8") as file:
         json.dump([record.to_dict() for record in dataset] , file, indent=4)
 
-
-
-def extract_features_for_state(
-    raw_state: RawState, 
-    entropy_strategy: EntropyStrategy, 
-    lookup: FeedbackLookup
-) -> FeatureRecord:
+def compute_unique_digits_ratio(solutions: List[str]) -> float:
     """
-    Calcola le metriche della Teoria dell'Informazione per un singolo RawState.
+    Calcola il rapporto di cifre distinte presenti nell'intero insieme di soluzioni.
     
-    PRE: 
-        - raw_state è un'istanza valida di RawState.
-        - entropy_strategy e lookup sono istanze funzionanti del motore di gioco.
-    POST: Ritorna un'istanza FeatureRecord contenente:
-          - state_id = raw_state.state_id
-          - n = raw_state.n
-          - residual_entropy = log2(N) - H
-          - n_max = dimensione del bucket peggiore
-          - target_cost = raw_state.best_cost
-          - source_tree = raw_state.source_tree
+    PRE: solutions è una lista non vuota di combinazioni a 4 cifre.
+    POST: Ritorna float tra 0.4 e 1.0 (len(set_cifre) / 10.0).
     """
-    # 1. Trova la mossa migliore: entropy_strategy.choose_guess(raw_state.solutions, history=["bypass"])
-    entropy_move = entropy_strategy.choose_guess(raw_state.solutions, history=["bypass"])
+    set_sol = {c for s in solutions for c in s}
+    return len(set_sol) / BASE
 
-    # 2. Calcola la frammentazione: calculate_buckets(best_guess, raw_state.solutions, lookup)
-    buckets = calculate_buckets(entropy_move, raw_state.solutions, lookup)
-
-    # 3. Calcola le probabilità di ciascun bucket: p_i = len(bucket) / raw_state.n
-    probabilities = [len(bucket) / raw_state.n for bucket in buckets.values()]
-
-    # 4. Calcola l'Entropia di Shannon: H = -sum(p * log2(p) for p in probabilities if p > 0)
-    h = -sum(p * math.log2(p) for p in probabilities if p > 0) 
+def compute_column_entropy(solutions: List[str], dim: int = 4) -> float:
+    """
+    Calcola l'entropia media delle 4 colonne del bucket.
     
-    # 5. Calcola l'Incertezza Residua: residual_entropy = log2(raw_state.n) - H
-    residual_entropy = math.log2(raw_state.n) - h
+    PRE: solutions lista non vuota. dim = 4.
+    POST: Ritorna la media aritmetica dell'entropia di Shannon calcolata colonna per colonna.
+    """
+    # 1. Inizializza una lista o accumulatore per le entropie delle 4 colonne
+    # 2. Per ogni posizione da 0 a dim-1:
+    #    a. Estrai la lista di caratteri della colonna: [s[col] for s in solutions]
+    #    b. Calcola le frequenze delle cifre presenti
+    #    c. Calcola p_d = frequenza / len(solutions)
+    #    d. Calcola H_col = -sum(p * log2(p) for p in probabilities if p > 0)
+    # 3. Ritorna la media delle entropie (somma / dim)
+    acc_entropy = 0
+    n_sol = len(solutions)
+    for col in range(0,DIM):
+        val_col = [s[col] for s in solutions]
+        frequencies = calculate__frequencies(val_col)
+        probabilities = [frequency/n_sol for frequency in frequencies.values()]
+        h_col = -sum(p * math.log2(p) for p in probabilities if p > 0)
+        acc_entropy += h_col
+    return acc_entropy / DIM
 
-    # 6. Calcola il Caso Peggiore: n_max = max(len(s) for s in buckets.values())
-    n_max = max(len(s) for s in buckets.values())
+def calculate__frequencies(col: list[str]) -> dict[str, int]:
+        """
+        Calcola le frequenza delle cifre in una colonna.
 
-    # 7. Istanzia e ritorna FeatureRecord con tutti i campi calcolati
-    record = FeatureRecord(
-        raw_state.state_id,
-        raw_state.n,
-        residual_entropy,
-        n_max,
-        raw_state.best_cost,
-        raw_state.source_tree
+        """
+        frequencies = {}
+        for n in range(0,BASE):
+            c = str(n)
+            frequencies[c] =col.count(c)
+        return frequencies
+
+def build_feature_record(raw_state: RawState) -> FeatureRecord:
+    """
+    Costruisce l'oggetto FeatureRecord calcolando tutte le metriche intrinseche di un RawState.
+    
+    PRE: raw_state è un'istanza valida.
+    POST: Ritorna FeatureRecord con log_n, unique_digits_ratio e column_entropy calcolati.
+    """
+    # 1. Calcola log_n = math.log2(raw_state.n)
+    # 2. Calcola unique_digits_ratio tramite compute_unique_digits_ratio
+    # 3. Calcola column_entropy tramite compute_column_entropy
+    # 4. Istanzia e ritorna FeatureRecord con tutti i campi
+    return FeatureRecord(
+        state_id=raw_state.state_id,
+        n=raw_state.n,
+        log_n=math.log2(raw_state.n),
+        unique_digits_ratio=compute_unique_digits_ratio(raw_state.solutions),
+        column_entropy=compute_column_entropy(raw_state.solutions),
+        target_cost= raw_state.best_cost,
+        source_tree= raw_state.source_tree
     )
-
-    return record
-
 
 def main():
     """
-    Punto di ingresso principale della Fase 2:
-    1. Verifica l'esistenza di data/raw_states.json e caricalo usando load_raw_states (dizionario di RawState).
-    2. Carica i FeatureRecord già esistenti da data/features_dataset.json (se interrotto in passato).
-    3. Crea un set di id già calcolati per saltare all'istante i record già pronti.
-    4. Inizializza l'ambiente di gioco (permutazioni, lookup table forzata, EntropyStrategy).
-    5. Avvia il ciclo tqdm solo sugli stati non ancora calcolati:
-       - Chiama extract_features_for_state per ciascuno.
-       - Aggiunge il FeatureRecord alla lista dataset.
-       - Salva su disco ogni SAVE_INTERVAL iterazioni usando save_features_dataset.
-    6. Salva definitivamente il dataset completo su data/features_dataset.json.
-    7. Stampa un riepilogo con il numero totale di campioni arricchiti pronti per il training.
+    1. Carica raw_states da RAW_STATES_FILEPATH.
+    2. Carica features_cache da FEATURES_DATASET_FILEPATH (se esiste).
+    3. Cicla con tqdm su tutti i raw_states:
+       - Se lo state_id è già in cache: aggiorna target_cost e source_tree se migliorati.
+       - Se è nuovo: costruisci il nuovo record con build_feature_record e aggiungilo.
+    4. Salva la lista aggiornata su data/features_dataset.json.
+    5. Stampa riepilogo con il totale di record sincronizzati.
     """
     raw_states = load_raw_states(RAW_STATES_FILEPATH)
 
@@ -124,19 +130,13 @@ def main():
 
     cache_features = {record.state_id: record for record in features}
 
-    all_perms = generate_all_permutations()
-    lookup = FeedbackLookup(all_perms)
-    lookup.get_feedback(all_perms[0], all_perms[0]) # Lazy init
-    entropy_strategy = EntropyStrategy(all_perms,lookup)
-    print(f"Inizializzazione ambiente effettuata")
-
     for i, (state_id, state_data) in enumerate(tqdm(raw_states.items(), desc="Calcolo Feature")):
         if state_id in cache_features.keys():
             if state_data.best_cost < cache_features[state_id].target_cost:
                 cache_features[state_id].target_cost = state_data.best_cost
                 cache_features[state_id].source_tree = state_data.source_tree
         else:
-            new_record = extract_features_for_state(state_data, entropy_strategy, lookup)
+            new_record = build_feature_record(state_data)
             cache_features[state_id] = new_record
 
         if (i + 1) % SAVE_INTERVAL == 0:
