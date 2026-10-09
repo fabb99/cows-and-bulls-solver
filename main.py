@@ -11,6 +11,9 @@ from src.strategies.basic import NaiveStrategy, MaxFrequencyStrategy
 from src.strategies.greedy_minimax import GreedyMinimaxStrategy
 from src.strategies.entropy import EntropyStrategy
 from src.strategies.hybrid import HybridWeightedStrategy
+from src.strategies.estimated_evm import EstimatedEVMStrategy
+from src.strategies.deep_evm import PureDeepEVMStrategy
+from src.estimators.geometric import GeometricBucketEstimator
 
 def main():
     print("Avvio del Sistema Cows and Bulls...")
@@ -30,16 +33,19 @@ def main():
 
 
     # 2. Scelta della Strategia (De-commenta quella che vuoi usare!)
-    
+    estimator = GeometricBucketEstimator()
+
+
     # strategy = NaiveStrategy(all_perms, lookup)
     # strategy = MaxFrequencyStrategy(all_perms, lookup)
     # strategy = GreedyMinimaxStrategy(all_perms, lookup)
     #strategy = EntropyStrategy(all_perms, lookup)
+    strategy = EstimatedEVMStrategy(all_perms,lookup,estimator,NaiveStrategy(all_perms,lookup),fallback_threshold=0)
     
     # ESEMPIO IBRIDA:
-    strategy_a = EntropyStrategy(all_perms, lookup)
-    strategy_b = GreedyMinimaxStrategy(all_perms, lookup)
-    strategy = HybridWeightedStrategy(strategy_a, strategy_b, True, False, 0.94, 0.06, lookup)
+    # strategy_a = EntropyStrategy(all_perms, lookup)
+    # strategy_b = GreedyMinimaxStrategy(all_perms, lookup)
+    # strategy = HybridWeightedStrategy(strategy_a, strategy_b, True, False, 0.94, 0.06, lookup)
 
 
     # 3. Avvio della Partita

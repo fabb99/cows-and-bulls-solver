@@ -9,6 +9,8 @@ from src.core.generator import generate_all_permutations
 from src.analysis.tree_builder import build_decision_tree
 from src.analysis.tree_io import save_tree_to_json
 
+from src.estimators.geometric import GeometricBucketEstimator
+
 from src.strategies.base import BaseStrategy
 from src.strategies.basic import NaiveStrategy,MaxFrequencyStrategy
 from src.strategies.greedy_minimax import GreedyMinimaxStrategy
@@ -31,7 +33,7 @@ def setup_strategies(all_perms, lookup) -> dict[str, BaseStrategy]:
         # "max_entropy": EntropyStrategy(all_perms,lookup), 
         # "hybrid_eg_9406": HybridWeightedStrategy(EntropyStrategy(all_perms,lookup),GreedyMinimaxStrategy(all_perms,lookup),True,False,94,6,lookup),
         # "pure_deep_emv": PureDeepEVMStrategy(all_perms,lookup, EntropyStrategy(all_perms,lookup)),
-        "estimated_evm_t0": EstimatedEVMStrategy(all_perms,lookup,PureDeepEVMStrategy(all_perms,lookup, EntropyStrategy(all_perms,lookup)),fallback_threshold=10),
+        "estimated_evm_t1": EstimatedEVMStrategy(all_perms,lookup,GeometricBucketEstimator(),PureDeepEVMStrategy(all_perms,lookup, EntropyStrategy(all_perms,lookup)),fallback_threshold=0),
         
     }
     return strategies
