@@ -1,15 +1,17 @@
 """
-Modulo: train_evaluator (Script)
-Fase 4 della Pipeline (Training e Valutazione del Modello):
-1. Carica il dataset tipizzato (List[FeatureRecord]) da data/features_dataset.json.
-2. Esegue l'Analisi Esplorativa dei Dati (EDA) e calcola le correlazioni di Pearson.
-3. Addestra e confronta due modelli lineari tramite Decomposizione a Valori Singolari (NumPy SVD):
-   - Modello A: Intercetta + Entropia Residua
-   - Modello B: Intercetta + Entropia Residua + Rischio N_max
-4. Misura le performance su scala reale tramite MAE, RMSE e R² (Coefficiente di Determinazione).
-5. Stampa la formula matematica definitiva pronta da incollare in EstimatedEVMStrategy.
+Modulo: train_model (Script)
+Fase 4 della Pipeline (Training del Regressore di Difficoltà del Bucket):
+1. Carica il dataset geometrico tipizzato da data/features_dataset.json.
+2. Analisi Esplorativa (EDA): calcola medie, deviazioni standard e le correlazioni
+   di Pearson tra le feature geometriche del bucket e il costo reale M.
+3. Addestra e confronta 3 modelli lineari con Intercetta (NumPy lstsq):
+   - Modello 1: log2(N)
+   - Modello 2: log2(N) + Unique Digits Ratio
+   - Modello 3: log2(N) + Unique Digits Ratio + Column Entropy
+4. Misura MAE, RMSE e R² per decretare il modello vincitore.
+5. Stampa la formula matematica finale pronta per EstimatedEVMStrategy.
 """
-from typing import List, Tuple
+from typing import List, Dict, Any, Tuple
 from pathlib import Path
 import json
 import numpy as np
@@ -32,46 +34,52 @@ def load_dataset(filepath: Path) -> List[FeatureRecord]:
 
 def print_exploratory_analysis(dataset: List[FeatureRecord]) -> None:
     """
-    Stampa l'Analisi Esplorativa dei Dati (EDA) e le matrici di correlazione lineare.
+    Stampa la tabella statistica e le correlazioni di Pearson con il Costo Reale M.
     
-    PRE: dataset è una lista non vuota di FeatureRecord.
-    POST: Stampa a terminale una tabella ASCII con:
-          - Media, Deviazione Standard, Minimo e Massimo per ciascuna variabile (N, Delta H, N_max, M).
-          - La Correlazione di Pearson (np.corrcoef) tra ciascuna feature e il costo reale target_cost.
+    PRE: dataset non vuoto.
+    POST: Stampa:
+          - Media, Std, Min e Max per: N, log_n, unique_digits_ratio, column_entropy, target_cost.
+          - La correlazione np.corrcoef tra ciascuna feature e target_cost.
     """
-    # 1. Estrai gli array NumPy 1D per ciascun campo:
+    # 1. Estrai i vettori NumPy per ciascun campo del nuovo FeatureRecord:
     #    - n_vals = np.array([r.n for r in dataset])
-    #    - res_ent = np.array([r.residual_entropy for r in dataset])
-    #    - n_max = np.array([r.n_max for r in dataset])
+    #    - log_n = np.array([r.log_n for r in dataset])
+    #    - digits_ratio = np.array([r.unique_digits_ratio for r in dataset])
+    #    - col_entropy = np.array([r.column_entropy for r in dataset])
     #    - target_m = np.array([r.target_cost for r in dataset])
-    n_vals = np.array([np.log2(r.n) for r in dataset])
-    res_ent = np.array([r.residual_entropy for r in dataset])
-    n_max = np.array([np.log2(r.n_max) for r in dataset])
+    
+    # 2. Stampa la tabella formattata con np.mean, np.std, np.min, np.max.
+    
+    # 3. Calcola le correlazioni di Pearson rispetto a target_m usando np.corrcoef:
+    #    - corr_log_n = np.corrcoef(log_n, target_m)[0, 1]
+    #    - corr_digits = np.corrcoef(digits_ratio, target_m)[0, 1]
+    #    - corr_col_ent = np.corrcoef(col_entropy, target_m)[0, 1]
+    
+    # 4. Stampa le correlazioni con l'interpretazione intuitiva.
+    # 1. Estrai i vettori
+    n_vals = np.array([r.n for r in dataset])
+    log_n = np.array([r.log_n for r in dataset])
+    digits_ratio = np.array([r.unique_digits_ratio for r in dataset])
+    col_entropy = np.array([r.column_entropy for r in dataset])
     target_m = np.array([r.target_cost for r in dataset])
 
-    # 2. Stampa la tabella formattata calcolando np.mean, np.std, np.min, np.max per ciascun vettore.
-    print("-" * 70)
+    # 2. Stampa la tabella formattata
+    print("\n" + "=" * 70)
+    print(f" ANALISI ESPLORATIVA DEI DATI DEI BUCKET - {len(dataset)} STATI")
+    print("=" * 70)
     print(f"{'Feature':<25} | {'Media':<8} | {'Dev.Std':<8} | {'Min':<6} | {'Max':<6}")
     print("-" * 70)
     print(f"{'Dimensione N':<25} | {np.mean(n_vals):<8.2f} | {np.std(n_vals):<8.2f} | {np.min(n_vals):<6} | {np.max(n_vals):<6}")
-    print(f"{'Entropia Residua':<25} | {np.mean(res_ent):<8.3f} | {np.std(res_ent):<8.3f} | {np.min(res_ent):<6.2f} | {np.max(res_ent):<6.2f}")
-    print(f"{'N_max (Caso Peggiore)':<25} | {np.mean(n_max):<8.2f} | {np.std(n_max):<8.2f} | {np.min(n_max):<6} | {np.max(n_max):<6}")
+    print(f"{'log2(N)':<25} | {np.mean(log_n):<8.3f} | {np.std(log_n):<8.3f} | {np.min(log_n):<6.2f} | {np.max(log_n):<6.2f}")
+    print(f"{'Rapporto Cifre':<25} | {np.mean(digits_ratio):<8.3f} | {np.std(digits_ratio):<8.3f} | {np.min(digits_ratio):<6.2f} | {np.max(digits_ratio):<6.2f}")
+    print(f"{'Entropia Colonne':<25} | {np.mean(col_entropy):<8.3f} | {np.std(col_entropy):<8.3f} | {np.min(col_entropy):<6.2f} | {np.max(col_entropy):<6.2f}")
     print(f"{'Costo Reale M':<25} | {np.mean(target_m):<8.3f} | {np.std(target_m):<8.3f} | {np.min(target_m):<6.2f} | {np.max(target_m):<6.2f}")
-    print("-" * 70)
 
-    # 3. Calcola la correlazione di Pearson (r) tra res_ent e target_m, e tra n_max e target_m usando np.corrcoef.
-    #    Ricorda: np.corrcoef(X, Y)[0, 1] estrae il valore scalare tra -1 e +1.
-    
-    perason_corr_n = np.corrcoef(n_vals, target_m)[0,1]
-    pearson_corr_res_ent = np.corrcoef(res_ent, target_m)[0,1]
-    perason_corr_n_max = np.corrcoef(n_max, target_m)[0,1]
-    
-    # 4. Stampa le correlazioni con una breve interpretazione qualitativa.
-    print("-" * 70)
-    print("Correlazione di Pearson con il Costo Reale M (Più è vicino a +1, più è predittivo)")
-    print(f"- N                -> Costo M : {perason_corr_n:+.4f} ")
-    print(f"- Entropia Residua -> Costo M : {pearson_corr_res_ent:+.4f} ")
-    print(f"- N_max            -> Costo M : {perason_corr_n_max:+.4f} ")
+    # 3. Correlazione di Pearson con il Costo M
+    print("\n--- Correlazione di Pearson con il Costo Reale M ---")
+    print(f"- log2(N)          -> Costo M : {np.corrcoef(log_n, target_m)[0, 1]:+.4f}")
+    print(f"- Rapporto Cifre   -> Costo M : {np.corrcoef(digits_ratio, target_m)[0, 1]:+.4f} (Ci aspettiamo un segno NEGATIVO!)")
+    print(f"- Entropia Colonne -> Costo M : {np.corrcoef(col_entropy, target_m)[0, 1]:+.4f} (Ci aspettiamo un segno NEGATIVO!)")
     print("=" * 70 + "\n")
 
 def compute_regression_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Tuple[float, float, float]:
@@ -99,38 +107,28 @@ def compute_regression_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Tuple[
 
 def train_linear_model(
     X_features: np.ndarray, 
-    y_targets: np.ndarray, 
-    include_intercept: bool = True
+    y_targets: np.ndarray
 ) -> Tuple[np.ndarray, Tuple[float, float, float]]:
     """
-    Risolve il sistema lineare ai minimi quadrati (OLS) tramite Decomposizione a Valori Singolari (SVD).
+    Risolve il sistema OLS con intercetta automatica K0 tramite NumPy SVD.
     
     PRE: 
         - X_features è una matrice NumPy (N_samples, N_features).
-        - y_targets è un vettore NumPy 1D con i valori target reali (M).
-        - include_intercept specifica se inserire il termine di bias (K0).
-    POST: Ritorna una tupla contenente:
-          - Il vettore dei coefficienti ottimali trovati da NumPy.
-          - La tupla delle metriche (MAE, RMSE, R2).
+        - y_targets è un vettore 1D con i costi reali M.
+    POST: Ritorna (coefficienti, (mae, rmse, r2)).
     """
-    # 1. Se include_intercept è True:
-    #    Crea una colonna di soli '1' della stessa lunghezza di X (es. np.ones_like...)
-    #    Concatena orizzontalmente la colonna di 1 alle feature usando np.column_stack.
-    #    Se False, usa direttamente X_features.
-    if include_intercept:
-        array_ones = np.ones_like(y_targets)
-        x_features = np.column_stack([array_ones, X_features])
-    else: 
-        x_features = X_features
-    # 2. Risolvi il sistema ai minimi quadrati:
-    #    coeffs = np.linalg.lstsq(X_con_intercetta, y_targets, rcond=None)[0]
-    coeff= np.linalg.lstsq(x_features,y_targets, rcond=None)[0]
-    # 3. Calcola le previsioni del modello moltiplicando la matrice per i coefficienti trovati (prodotto scalare).
-    y_pred = x_features @ coeff
-    # 4. Calcola le metriche chiamando compute_regression_metrics(y_targets, y_pred).
+    # 1. Crea la colonna di 1 con np.ones_like(y_targets)
+    # 2. Incolla con np.column_stack([colonna_uno, X_features])
+    x = np.column_stack([np.ones_like(y_targets), X_features])
+    # 3. Risolvi con np.linalg.lstsq(..., rcond=None)[0]
+    coeffs = np.linalg.lstsq(x, y_targets, rcond=None)[0]
+    # 4. Calcola le predizioni con l'operatore matriciale @
+    y_pred = x @ coeffs
+    # 5. Calcola le metriche con compute_regression_metrics(y_targets, y_pred)
     metrics = compute_regression_metrics(y_targets, y_pred)
-    # 5. Ritorna (coeffs, metrics)
-    return coeff, metrics
+    # 6. Ritorna (coeffs, metrics)
+    return (coeffs, metrics)
+
 
 
 def main():
@@ -144,21 +142,59 @@ def main():
     6. Stampa una tabella comparativa affiancando i due modelli con le metriche MAE, RMSE e R².
     7. Stampa la formula matematica definitiva pronta da copiare dentro EstimatedEVMStrategy.
     """
+    """
+    Punto di ingresso principale della Fase 4:
+    1. Carica il dataset da FEATURES_DATASET_FILEPATH.
+    2. Stampa l'Analisi Esplorativa (EDA) completa con le correlazioni.
+    3. Estrai i vettori di feature: log_n, digits_ratio, col_entropy e y_targets.
+    4. Allena il MODELLO 1: solo log_n.
+    5. Allena il MODELLO 2: np.column_stack([log_n, digits_ratio]).
+    6. Allena il MODELLO 3: np.column_stack([log_n, digits_ratio, col_entropy]).
+    7. Stampa la tabella comparativa che mette a confronto MAE e R² dei 3 modelli.
+    8. Stampa l'equazione definitiva del modello vincitore con i coefficienti trovati!
+    """
     dataset = load_dataset(FEATURES_DATASET_FILEPATH) 
 
     print_exploratory_analysis(dataset)
 
-    x_n = np.array([np.log2(state.n) for state in dataset])
-    x_n_max = np.array([np.log2(state.n_max) for state in dataset])
-    x_residual_entropy = np.array([state.residual_entropy for state in dataset])
+    x_log_n = np.array([state.log_n for state in dataset])
+    digits_radio = np.array([state.unique_digits_ratio for state in dataset])
+    x_col_entropy = np.array([state.column_entropy for state in dataset])
     
     y_targets = np.array([state.target_cost for state in dataset])
 
-    #MODELLO per ora solo uno
-    coeff, metrics = train_linear_model(np.column_stack([x_n, x_n_max,x_residual_entropy]), y_targets)
 
-    print(f"Coefficenti =  {coeff}")
-    print(f"metriche = {metrics}" )
+    #MODELLO 1
+    coeff1, metrics1 = train_linear_model(x_log_n, y_targets)
+
+    #MODELLO 2
+    coeff2, metrics2 = train_linear_model(np.column_stack([x_log_n, digits_radio]), y_targets)
+
+    #MODELLO 3
+    coeff3, metrics3 = train_linear_model(np.column_stack([x_log_n, digits_radio, x_col_entropy]), y_targets)
+
+    # 7. Tabella Comparativa dei 3 Modelli
+    print("=" * 70)
+    print(" CONFRONTO TRA I 3 MODELLI GEOMETRICI DEL BUCKET")
+    print("=" * 70)
+    print(f"{'Modello':<35} | {'MAE (Errore)':<12} | {'R² (Accuratezza)':<15}")
+    print("-" * 70)
+    print(f"{'1. Solo log2(N)':<35} | ±{metrics1[0]:<11.3f} | {metrics1[2] * 100:<14.2f}%")
+    print(f"{'2. log2(N) + Rapporto Cifre':<35} | ±{metrics2[0]:<11.3f} | {metrics2[2] * 100:<14.2f}%")
+    print(f"{'3. Geometria Completa (Tutte e 3)':<35} | ±{metrics3[0]:<11.3f} | {metrics3[2] * 100:<14.2f}%")
+    print("=" * 70)
+
+    # 8. Formula Definitiva per il Modello Completo (Modello 3)
+    k0, k1, k2, k3 = coeff3[0], coeff3[1], coeff3[2], coeff3[3]
+    print("\n" + "#" * 70)
+    print(" COEFFICIENTI DEFINITIVI PER _estimate_bucket_cost")
+    print("#" * 70)
+    print(f"K0_INTERCEPT: float = {k0:.4f}")
+    print(f"K1_LOG_N: float     = {k1:.4f}")
+    print(f"K2_DIGITS: float    = {k2:.4f}")
+    print(f"K3_COLUMNS: float   = {k3:.4f}")
+    print("\nFormula: Costo = K0 + (K1 * log2(n)) + (K2 * digits_ratio) + (K3 * col_entropy)")
+    print("#" * 70 + "\n")
 
 
 
