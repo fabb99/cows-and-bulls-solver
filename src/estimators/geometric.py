@@ -16,10 +16,10 @@ class GeometricBucketEstimator(BaseBucketEstimator):
     """
 
     # Coefficienti ottimali addestrati su 4.121 stati (R² = 84.89%)
-    DEFAULT_K0: float = 1.3188
-    DEFAULT_K1_LOG_N: float = 0.3636
-    DEFAULT_K2_DIGITS: float = 0.0320
-    DEFAULT_K3_COLUMNS: float = -0.1910
+    DEFAULT_K0: float = 1.3732
+    DEFAULT_K1_LOG_N: float = 0.3466
+    DEFAULT_K2_DIGITS: float = -0.0173
+    DEFAULT_K3_COLUMNS: float = -0.1854
 
     def __init__(
         self,

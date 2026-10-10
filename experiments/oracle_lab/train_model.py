@@ -21,6 +21,9 @@ from experiments.oracle_lab.models import FeatureRecord
 # Percorso del dataset arricchito
 FEATURES_DATASET_FILEPATH = Path("data/features_dataset.json")
 
+SPLIT_ENDGAME: int = 13
+SPLIT_MIDGAME: int = 40
+
 def load_dataset(filepath: Path) -> List[FeatureRecord]:
     """
     Carica i dati arricchiti dal file JSON e ricostruisce gli oggetti FeatureRecord.
@@ -129,6 +132,47 @@ def train_linear_model(
     # 6. Ritorna (coeffs, metrics)
     return (coeffs, metrics)
 
+def train_segment(
+    segment_name: str, 
+    records: List[FeatureRecord]
+) -> Tuple[np.ndarray, Tuple[float, float, float]]:
+    """
+    Allena e valuta il Modello Geometrico (Modello 3) su uno specifico scaglione di dati.
+    
+    PRE: segment_name è una stringa descrittiva. records è una lista non vuota di FeatureRecord.
+    POST: Ritorna (coefficienti_K, metriche_(mae, rmse, r2)) e stampa a terminale 
+          la scheda di performance dello scaglione.
+    """
+    # 1. Estrai log_n, digits_ratio, col_entropy, target_m usando list comprehension e np.array
+    log_n = [r.log_n for r in records]
+    digits_ratio = [r.unique_digits_ratio for r in records]
+    col_entropy = [r.column_entropy for r in records]
+
+    target_m = [r.target_cost for r in records]
+    # 2. Crea la matrice X con np.column_stack([log_n, digits_ratio, col_entropy])
+    X = np.column_stack([log_n, digits_ratio, col_entropy])
+    # 3. Lancia coeffs, metrics = train_linear_model(X, target_m)
+    coeff, metrics = train_linear_model(X,target_m)
+    # 4. Stampa tabella con: Numero Campioni, MAE, R², e i 4 coefficienti:
+    #    K0 (intercetta), K1 (log_n), K2 (digits), K3 (columns)
+    print_exploratory_analysis(records)
+
+    print(f"{'Numero':<12} | {'MAE (Errore)':<12} | {'R² (Accuratezza)':<15}")
+    print(f"{len(records):<12} | ±{metrics[0]:<11.3f} | {metrics[2] * 100:<14.2f}%")
+
+    k0, k1, k2, k3 = coeff[0], coeff[1], coeff[2], coeff[3]
+    print("\n" + "#" * 70)
+    print(f" COEFFICIENTI DEFINITIVI PER {segment_name}")
+    print("#" * 70)
+    print(f"K0_INTERCEPT: float = {k0:.4f}")
+    print(f"K1_LOG_N: float     = {k1:.4f}")
+    print(f"K2_DIGITS: float    = {k2:.4f}")
+    print(f"K3_COLUMNS: float   = {k3:.4f}")
+    print("\nFormula: Costo = K0 + (K1 * log2(n)) + (K2 * digits_ratio) + (K3 * col_entropy)")
+    print("#" * 70 + "\n")
+    # 5. Ritorna (coeffs, metrics)
+    return coeff, metrics
+
 
 def main():
     """
@@ -185,6 +229,16 @@ def main():
     print("\nFormula: Costo = K0 + (K1 * log2(n)) + (K2 * digits_ratio) + (K3 * col_entropy)")
     print("#" * 70 + "\n")
 
+
+    #---------
+    dataset_opening = [d for d in dataset if d.n > SPLIT_MIDGAME]  
+    dataset_midgame = [d for d in dataset if SPLIT_ENDGAME < d.n <= SPLIT_MIDGAME] 
+    dataset_endgame = [d for d in dataset if d.n <= SPLIT_ENDGAME] 
+
+    dict = {"OPENING" : dataset_opening, "MIDGAME": dataset_midgame, "ENDGAME": dataset_endgame} 
+
+    for k, v in dict.items():
+        train_segment(k, v)
 
 
 if __name__ == "__main__":

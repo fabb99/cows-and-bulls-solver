@@ -46,8 +46,8 @@ class EstimatedEVMStrategy(BaseStrategy):
                     candidate_cost += p * self.estimator.estimate_cost(sol)
 
             # Bonus colpo diretto se la mossa è una soluzione valida
-            if candidate in possible_solutions:
-                candidate_cost -= (1.0 / num_solutions)
+            # if candidate in possible_solutions:
+            #     candidate_cost -= (1.0 / num_solutions)
 
             scores_of_candidates[candidate] = candidate_cost
             
