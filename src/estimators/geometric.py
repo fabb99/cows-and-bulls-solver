@@ -1,21 +1,28 @@
 """
 Modulo: geometric (src/estimators)
-Contiene GeometricBucketEstimator: stima la difficoltà di un bucket basandosi 
-sulla dimensione logaritmica log2(N), la concentrazione delle cifre (Unique Digits Ratio)
-e la mobilità posizionale (Entropia delle 4 colonne).
+Contiene GeometricBucketEstimator:
+Carica i coefficienti addestrati da data/models/geometric_model.json (se esistente)
+oppure usa i valori di default della classe come fallback.
 """
-from typing import List
+from typing import List, Optional
+from pathlib import Path
+import json
 import math
+from collections import Counter
+
 from src.core.constants import BASE, DIM
 from src.estimators.base import BaseBucketEstimator
 
+DEFAULT_WEIGHTS_FILEPATH = Path("data/models/geometric_model.json")
+
+
 class GeometricBucketEstimator(BaseBucketEstimator):
     """
-    Stimatore geometrico addestrato sui dati della Data Science (Modello 3).
-    Formula: Costo = K0 + K1*log2(N) + K2*digits_ratio + K3*col_entropy
+    Stimatore geometrico globale a formula unica.
+    Costo = K0 + K1*log2(N) + K2*digits + K3*columns
     """
 
-    # Coefficienti ottimali addestrati su 4.121 stati (R² = 84.89%)
+    # Valori di fallback nel caso in cui il file JSON non esista
     DEFAULT_K0: float = 1.3732
     DEFAULT_K1_LOG_N: float = 0.3466
     DEFAULT_K2_DIGITS: float = -0.0173
@@ -23,69 +30,44 @@ class GeometricBucketEstimator(BaseBucketEstimator):
 
     def __init__(
         self,
-        k0: float = DEFAULT_K0,
-        k1_log_n: float = DEFAULT_K1_LOG_N,
-        k2_digits: float = DEFAULT_K2_DIGITS,
-        k3_columns: float = DEFAULT_K3_COLUMNS
+        weights_path: Optional[Path] = DEFAULT_WEIGHTS_FILEPATH,
+        k0: Optional[float] = None,
+        k1_log_n: Optional[float] = None,
+        k2_digits: Optional[float] = None,
+        k3_columns: Optional[float] = None
     ):
-        """
-        Inizializza lo stimatore geometrico con i pesi di regressione.
-        """
-        self.k0 = k0
-        self.k1_log_n = k1_log_n
-        self.k2_digits = k2_digits
-        self.k3_columns = k3_columns
+        # 1. Caricamento da file JSON (se presente)
+        data = {}
+        if weights_path is not None and weights_path.exists():
+            try:
+                with open(weights_path, "r", encoding="utf-8") as file:
+                    data = json.load(file)
+            except Exception:
+                data = {}
 
-    def _compute_unique_digits_ratio(self, solutions: List[str]) -> float:
-        """
-        Funzione ausiliaria: calcola il rapporto di cifre distinte (tra 0.4 e 1.0).
-        PRE: solutions lista non vuota.
-        POST: Ritorna len(set_cifre) / BASE.
-        """
+        # 2. Assegnazione: Priorità parametro esplicito > JSON da file > Default della classe
+        self.k0 = k0 if k0 is not None else data.get("k0", self.DEFAULT_K0)
+        self.k1_log_n = k1_log_n if k1_log_n is not None else data.get("k1_log_n", self.DEFAULT_K1_LOG_N)
+        self.k2_digits = k2_digits if k2_digits is not None else data.get("k2_digits", self.DEFAULT_K2_DIGITS)
+        self.k3_columns = k3_columns if k3_columns is not None else data.get("k3_columns", self.DEFAULT_K3_COLUMNS)
+
+    @staticmethod
+    def _compute_unique_digits_ratio(solutions: List[str]) -> float:
         set_sol = {c for s in solutions for c in s}
         return len(set_sol) / BASE
 
-    def _compute_column_entropy(self, solutions: List[str]) -> float:
-        """
-        Funzione ausiliaria: calcola la media dell'entropia posizionale delle 4 colonne.
-        PRE: solutions lista non vuota.
-        POST: Ritorna la media aritmetica dell'entropia di Shannon calcolata per ogni colonna.
-        """
-        acc_entropy = 0
+    @staticmethod
+    def _compute_column_entropy(solutions: List[str]) -> float:
+        acc_entropy = 0.0
         n_sol = len(solutions)
-        for col in range(0,DIM):
+        for col in range(DIM):
             val_col = [s[col] for s in solutions]
-            frequencies = self._calculate__frequencies(val_col)
-            probabilities = [frequency/n_sol for frequency in frequencies.values()]
-            h_col = -sum(p * math.log2(p) for p in probabilities if p > 0)
+            counts = Counter(val_col)
+            h_col = -sum((count / n_sol) * math.log2(count / n_sol) for count in counts.values())
             acc_entropy += h_col
         return acc_entropy / DIM
 
-    def _calculate__frequencies(self ,col: list[str]) -> dict[str, int]:
-        """
-        Calcola le frequenza delle cifre in una colonna.
-
-        """
-        frequencies = {}
-        for n in range(0,BASE):
-            c = str(n)
-            frequencies[c] =col.count(c)
-        return frequencies
-
     def estimate_cost(self, solutions: List[str]) -> float:
-        """
-        Calcola la stima della difficoltà del bucket.
-        
-        LOGICA INTERNA:
-        1. Casi base deterministici:
-           - len == 1 -> 1.0
-           - len == 2 -> 1.5
-        2. Calcola log2(len(solutions)).
-        3. Calcola il rapporto cifre con _compute_unique_digits_ratio.
-        4. Calcola l'entropia delle colonne con _compute_column_entropy.
-        5. Calcola e ritorna l'equazione lineare:
-           costo = k0 + (k1 * log_n) + (k2 * digits_ratio) + (k3 * col_entropy)
-        """
         n = len(solutions)
         if n == 1:
             return 1.0
@@ -96,7 +78,9 @@ class GeometricBucketEstimator(BaseBucketEstimator):
         digits_ratio = self._compute_unique_digits_ratio(solutions)
         col_entropy = self._compute_column_entropy(solutions)
 
-        return self.k0 + (self.k1_log_n * log_n) + (self.k2_digits * digits_ratio) + (self.k3_columns * col_entropy)
-
-
-
+        return (
+            self.k0 
+            + (self.k1_log_n * log_n) 
+            + (self.k2_digits * digits_ratio) 
+            + (self.k3_columns * col_entropy)
+        )
