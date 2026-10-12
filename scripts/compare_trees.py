@@ -6,6 +6,7 @@ from pathlib import Path
 from src.analysis.tree_io import load_tree_from_json
 from src.analysis.metrics import (max_depth, average_depth, get_depth_distribution, get_depth_distribution_next_move)
 from src.cli.game_loop import fb_tuple_to_string
+from src.core.generator import generate_all_feedbacks
 
 
 # Definiamo una lista di "Metriche" da calcolare. 
@@ -50,7 +51,7 @@ def print_comparison_dashboard(reports: dict[str, dict[str, any]]):
     print(f"{'Strategia':<20} | {'Caso Peggiore':<15} | {'Media Mosse':<15}")
     print("-" * 56)
     for name, data in reports.items():
-        print(f"{name:<20} | {data['Caso Peggiore']:<15} | {data['Media Mosse']:<15.3f}")
+        print(f"{name:<20} | {data['Caso Peggiore']:<15} | {data['Media Mosse']:<15.5f}")
 
     print("\n" + "=" * 80)
     print(" DETTAGLIO PARTITE RISOLTE PER NUMERO DI MOSSE")
@@ -70,7 +71,7 @@ def print_comparison_dashboard(reports: dict[str, dict[str, any]]):
         
     print("=" * len(header) + "\n")
 
-    print_comparison_dashboard_extend(reports)
+    #print_comparison_dashboard_extend(reports)
     #print_vertical_distribution_dashboard(reports)
 
 def print_comparison_dashboard_extend(reports: dict[str, dict[str, any]]):
@@ -117,14 +118,39 @@ def main():
     reports = {}
     print(f"Caricamento e analisi di {len(json_files)} alberi in corso...")
 
+    list_to_value =["max_entropy", 
+                    "estimated_evm_pi", 
+                    "hybrid_eg_9406", 
+                    "estimated_evm_pith2",
+                    "estimated_evm_ul",
+                    ]
+
     for file_path in json_files:
         strategy_name = file_path.stem # Prende il nome del file senza estensione .json
+        if strategy_name not in list_to_value:
+            continue
         print(f"- Analisi di {strategy_name}...")
         tree = load_tree_from_json(str(file_path))
         reports[strategy_name] = analyze_tree(tree)
 
-    # Mostra i risultati
+    # Mostra i risultati 
     print_comparison_dashboard(reports)
+
+    # Mostra i risultati dopo la prima mossa
+    for fb in generate_all_feedbacks():
+        print(f"\n\n VALUTAZIONE '{fb}'")
+        if fb == (4, 0):
+            continue
+
+        for file_path in json_files:
+            strategy_name = file_path.stem # Prende il nome del file senza estensione .json
+            if strategy_name not in list_to_value:
+                continue
+            #print(f"- Analisi '{fb}' di {strategy_name}...")
+            tree = load_tree_from_json(str(file_path))
+            reports[strategy_name] = analyze_tree(tree["children"].get(fb))
+        print_comparison_dashboard(reports)
+           
 
 
 if __name__ == "__main__":

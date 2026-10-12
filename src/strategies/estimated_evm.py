@@ -38,6 +38,10 @@ class EstimatedEVMStrategy(BaseStrategy):
             
         for candidate in candidates_to_test:
             buckets = calculate_buckets(candidate, possible_solutions, self.lookup)
+             # --- CINTURA DI SICUREZZA ANTI-LOOP ---
+            # Se la mossa crea 1 solo bucket e non è vittoria, elimina ZERO soluzioni: SCARTALA!
+            if len(buckets) == 1 and (DIM, 0) not in buckets:
+                continue
             
             candidate_cost = 1.0
             for fb, sol in buckets.items():

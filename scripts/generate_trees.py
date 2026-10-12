@@ -35,7 +35,7 @@ def setup_strategies(all_perms, lookup) -> dict[str, BaseStrategy]:
         # "hybrid_eg_9406": HybridWeightedStrategy(EntropyStrategy(all_perms,lookup),GreedyMinimaxStrategy(all_perms,lookup),True,False,94,6,lookup),
         # "pure_deep_emv": PureDeepEVMStrategy(all_perms,lookup, EntropyStrategy(all_perms,lookup)),
         #"estimated_evm_t2": EstimatedEVMStrategy(all_perms,lookup,GeometricBucketEstimator(),PureDeepEVMStrategy(all_perms,lookup, EntropyStrategy(all_perms,lookup)),fallback_threshold=0),
-        "estimated_evm_pi": EstimatedEVMStrategy(all_perms,lookup,PiecewiseBucketEstimator(),PureDeepEVMStrategy(all_perms,lookup, EntropyStrategy(all_perms,lookup)),fallback_threshold=0),
+        "estimated_evm_ul": EstimatedEVMStrategy(all_perms,lookup,PiecewiseBucketEstimator(),PureDeepEVMStrategy(all_perms,lookup, EntropyStrategy(all_perms,lookup)),fallback_threshold=0),
     }
     return strategies
 

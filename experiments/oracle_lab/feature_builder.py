@@ -10,15 +10,18 @@ Salva il dataset finale tipizzato (FeatureRecord) in data/features_dataset.json.
 """
 from typing import List, Dict, Any, Set
 from pathlib import Path
+from collections import Counter
 import json
 import math
+import numpy as np
 from tqdm import tqdm
+
 
 from experiments.oracle_lab.models import RawState, FeatureRecord
 from experiments.oracle_lab.data_miner import load_raw_states
 
 from src.core.constants import DIM , BASE
-
+from src.core.feedback import count_bulls
 # Percorsi e configurazioni
 RAW_STATES_FILEPATH = Path("data/raw_states.json")
 FEATURES_DATASET_FILEPATH = Path("data/features_dataset.json")
@@ -76,13 +79,13 @@ def compute_column_entropy(solutions: List[str], dim: int = 4) -> float:
     n_sol = len(solutions)
     for col in range(0,DIM):
         val_col = [s[col] for s in solutions]
-        frequencies = calculate__frequencies(val_col)
+        frequencies = calculate_col_frequencies(val_col)
         probabilities = [frequency/n_sol for frequency in frequencies.values()]
         h_col = -sum(p * math.log2(p) for p in probabilities if p > 0)
         acc_entropy += h_col
     return acc_entropy / DIM
 
-def calculate__frequencies(col: list[str]) -> dict[str, int]:
+def calculate_col_frequencies(col: list[str]) -> dict[str, int]:
         """
         Calcola le frequenza delle cifre in una colonna.
 
@@ -92,6 +95,64 @@ def calculate__frequencies(col: list[str]) -> dict[str, int]:
             c = str(n)
             frequencies[c] =col.count(c)
         return frequencies
+
+def _calculate_frequencies(solutions: List[str]) -> List[int]:
+    # Unisce tutte le stringhe (es. "01230145")
+    all_chars = "".join(solutions)
+    # Conta le frequenze di '0', '1', '2' ecc.
+    counts = Counter(all_chars)
+    # Ritorna una lista con ESATTAMENTE 10 numeri (le occorrenze da "0" a "9")
+    return [counts.get(str(i), 0) for i in range(10)]
+
+def compute_anagram_ratio(solutions: List[str]) -> float:
+    """
+    Calcola il rapporto tra impronte uniche (combinazioni ignorando l'ordine) e dimensione totale.
+    
+    PRE: solutions è una lista non vuota di combinazioni.
+    POST: Ritorna float in (0.0, 1.0]. Valori vicini a 0 indicano alta densità di anagrammi (difficile).
+    """
+    
+    anagram_ratio =  len(set("".join(sorted(s)) for s in solutions)) / len(solutions)
+    return anagram_ratio
+
+def compute_digit_variance(solutions: List[str]) -> float:
+    """
+    Calcola la varianza (o deviazione standard) delle frequenze assolute delle 10 cifre.
+    
+    PRE: solutions è una lista non vuota.
+    POST: Ritorna float >= 0.0. Valori alti indicano una forte asimmetria nell'uso delle cifre (difficile).
+    """
+    frequencies = _calculate_frequencies(solutions)
+    return np.std(frequencies)
+
+def compute_internal_cohesion(solutions: List[str]) -> float:
+    """
+    Calcola l'allineamento medio delle soluzioni con il profilo probabilistico del bucket.
+    
+    PRE: solutions è una lista non vuota di combinazioni.
+    POST: Ritorna float tra 0.0 e 1.0. Valori alti indicano alta densità/difficoltà.
+    """
+    n_sol = len(solutions)
+    
+    # 1. Creiamo i 4 dizionari delle probabilità (uno per colonna)
+    col_probs = []
+    for col in range(DIM):
+        val_col = [s[col] for s in solutions]
+        frequencies = _calculate_frequencies(val_col)
+        # Salviamo la probabilità per ogni cifra da '0' a '9'
+        probs = {str(i): (frequencies[i] / n_sol) for i in range(10)}
+        col_probs.append(probs)
+        
+    # 2. Calcoliamo il punteggio di conformità per ogni soluzione
+    total_score = 0.0
+    for s in solutions:
+        score_s = sum(col_probs[col][s[col]] for col in range(DIM)) / DIM
+        total_score += score_s
+        
+    # 3. Ritorniamo la media globale del bucket
+    return total_score / n_sol
+
+
 
 def build_feature_record(raw_state: RawState) -> FeatureRecord:
     """
@@ -111,7 +172,10 @@ def build_feature_record(raw_state: RawState) -> FeatureRecord:
         unique_digits_ratio=compute_unique_digits_ratio(raw_state.solutions),
         column_entropy=compute_column_entropy(raw_state.solutions),
         target_cost= raw_state.best_cost,
-        source_tree= raw_state.source_tree
+        source_tree= raw_state.source_tree,
+        anagram_ratio= compute_anagram_ratio(raw_state.solutions),
+        digit_variance= compute_digit_variance(raw_state.solutions),
+        internal_cohesion= compute_internal_cohesion(raw_state.solutions)
     )
 
 def main():

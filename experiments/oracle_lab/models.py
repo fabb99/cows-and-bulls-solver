@@ -60,6 +60,9 @@ class FeatureRecord:
     log_n: float
     unique_digits_ratio: float
     column_entropy: float
+    anagram_ratio: float
+    digit_variance: float
+    internal_cohesion: float
     target_cost: float
     source_tree: str
 

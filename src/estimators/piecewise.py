@@ -9,6 +9,8 @@ Applica coefficienti geometrici specializzati per ciascuna fase di gioco.
 """
 from typing import List
 import math
+import numpy as np
+from collections import Counter
 from src.core.constants import BASE, DIM
 from src.estimators.base import BaseBucketEstimator
 
@@ -25,28 +27,28 @@ class PiecewiseBucketEstimator(BaseBucketEstimator):
 
     # 2. I Coefficienti dello Scaglione 1: ENDGAME (N <= 13)
     # MAE: +-0.113
-# 1. Scaglione ENDGAME (N <= 13) - Protezione attiva contro gli Anagrammi (K2 = -0.1315)
+    # 1. Scaglione ENDGAME (N <= 13) - MAE: ±0.148
     K_ENDGAME = {
-        "k0": 1.5750,
-        "k1_log_n": 0.3243,
-        "k2_digits": -0.1315,
-        "k3_columns": -0.1831
+        "k0": 1.6106,
+        "k1_log_n": 0.1830,
+        "k2_col_entropy": -0.1549,
+        "k3_digit_std": 0.0961
     }
 
-    # 2. Scaglione MIDGAME (13 < N <= 40) - Protezione massima sulle Colonne (K3 = -0.2523)
+    # 2. Scaglione MIDGAME (13 < N <= 40) - MAE: ±0.100
     K_MIDGAME = {
-        "k0": 1.2855,
-        "k1_log_n": 0.3772,
-        "k2_digits": 0.1686,
-        "k3_columns": -0.2523
+        "k0": 1.4711,
+        "k1_log_n": 0.3356,
+        "k2_col_entropy": -0.2216,
+        "k3_digit_std": 0.0149
     }
 
-    # 3. Scaglione OPENING (N > 40) - Calibrato sull'incertezza dei grandi numeri
+    # 3. Scaglione OPENING (N > 40) - MAE: ±0.093
     K_OPENING = {
-        "k0": 1.4063,
-        "k1_log_n": 0.3643,
-        "k2_digits": -0.0429,
-        "k3_columns": -0.2027
+        "k0": 1.4210,
+        "k1_log_n": 0.3552,
+        "k2_col_entropy": -0.2036,
+        "k3_digit_std": 0.0010
     }
 
     def __init__(
@@ -66,15 +68,18 @@ class PiecewiseBucketEstimator(BaseBucketEstimator):
         self.k_midgame = k_midgame or self.K_MIDGAME
         self.k_opening = k_opening or self.K_OPENING
 
+
+
     @staticmethod
-    def _compute_unique_digits_ratio(solutions: List[str]) -> float:
-        """
-        Calcola il rapporto di cifre uniche distinte presenti nel gruppo (len(set) / BASE).
-        PRE: solutions lista non vuota.
-        POST: Ritorna float tra 0.4 e 1.0.
-        """
-        set_sol = {c for s in solutions for c in s}
-        return len(set_sol) / BASE
+    def _compute_digit_std(solutions: List[str]) -> float:
+        all_chars = "".join(solutions)
+        counts = Counter(all_chars)
+        frequencies = [counts.get(str(i), 0) for i in range(10)]
+        
+        # Matematica pura veloce:
+        mean_val = sum(frequencies) / 10.0
+        variance = sum((x - mean_val) ** 2 for x in frequencies) / 10.0
+        return math.sqrt(variance)
 
     @staticmethod
     def _compute_column_entropy(solutions: List[str]) -> float:
@@ -132,17 +137,17 @@ class PiecewiseBucketEstimator(BaseBucketEstimator):
             return 1.5
 
         log_n = math.log2(n)
-        digits_ratio = self._compute_unique_digits_ratio(solutions)
+        digits_std = self._compute_digit_std(solutions)
         col_entropy = self._compute_column_entropy(solutions)
 
         if n <= self.split_endgame:
-            k0, k1_log_n, k2_digits, k3_columns = self.k_endgame.values()
+            k0, k1_log_n, k2_columns, k3_digits, = self.k_endgame.values()
         elif self.split_endgame<n<=self.split_midgame:
-            k0, k1_log_n, k2_digits, k3_columns = self.k_midgame.values()
+            k0, k1_log_n, k2_columns, k3_digits = self.k_midgame.values()
         else:
-            k0, k1_log_n, k2_digits, k3_columns = self.k_opening.values()
+            k0, k1_log_n, k2_columns, k3_digits = self.k_opening.values()
 
-        return k0 + (k1_log_n * log_n) + (k2_digits * digits_ratio) + (k3_columns * col_entropy)
+        return k0 + (k1_log_n * log_n) + (k2_columns * col_entropy) + (k3_digits * digits_std)
         
         
         
