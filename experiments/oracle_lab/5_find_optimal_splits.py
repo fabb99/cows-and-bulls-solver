@@ -11,6 +11,7 @@ from pathlib import Path
 import json
 import numpy as np
 
+from experiments.oracle_lab.train_model import load_dataset
 from experiments.oracle_lab.models import FeatureRecord
 
 # Percorso del dataset con i dati geometrici e i costi reali
@@ -90,7 +91,6 @@ def find_best_single_split(
     # 6. Ritorna (best_threshold, guadagno, min_total_error)
     return (best_threshold, profit, min_total_error)
 
-
 def find_hierarchical_splits(
     n_values: np.ndarray, 
     costs: np.ndarray, 
@@ -122,14 +122,13 @@ def find_hierarchical_splits(
     # 3. Uniamo il taglio t con i tagli successivi trovati a destra
     return sorted([(t, profit)] + sub_splits,  key=lambda x: x[0])
 
-
 def main():
     """
     Punto di ingresso principale:
     1. Carica il dataset da FEATURES_DATASET_FILEPATH.
     2. Estrai gli array n_values e costs.
     3. Esegui la scansione per trovare la prima soglia principale T1 e stampa il guadagno di varianza.
-    4. Esegui la scansione gerarchica per trovare 2 o 3 soglie ottimali (es. Endgame, Midgame, Opening).
+    4. Esegui la scansione gerarchica per trovare 3 soglie ottimali (es. Endgame, Midgame, Opening).
     5. Stampa la mappa definitiva degli scaglioni:
        - Scaglione 1 (Endgame): N <= T1
        - Scaglione 2 (Midgame): T1 < N <= T2
@@ -142,8 +141,7 @@ def main():
 
     y_targets = np.array([state.target_cost for state in dataset])
 
-
-    splits = find_hierarchical_splits(n_values, y_targets, max_splits=4)
+    splits = find_hierarchical_splits(n_values, y_targets, max_splits=2)
 
     print("\n" + "=" * 65)
     print(" SOGLIE MATEMATICHE E GUADAGNO DI VARIANZA (CART)")
