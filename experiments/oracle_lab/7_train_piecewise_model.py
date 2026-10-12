@@ -13,6 +13,7 @@ import numpy as np
 from experiments.oracle_lab.models import FeatureRecord
 
 FEATURES_DATASET_FILEPATH = Path("data/features_dataset.json")
+OUTPUT_FILEPATH = Path("data/models/piecewise_model.json")
 
 # ---------------------------------------------------------------------------
 # CONFIGURAZIONE ASIMMETRIA (La manopola di controllo)
@@ -92,9 +93,6 @@ def train_segment(
     log_n = [r.log_n for r in records]
     col_entropy = [r.column_entropy for r in records]   
     dig_var = [r.digit_variance for r in records]
-    digits_ratio = [r.unique_digits_ratio for r in records]
-    int_cohesion = [r.internal_cohesion for r in records]
-    ana_ratio = [r.anagram_ratio for r in records]
     
     target_m = [r.target_cost for r in records]
 
@@ -108,7 +106,6 @@ def train_segment(
 
     # Estrazione dei 4 coefficienti (K0 intercetta + K1...K4)
     k0, k1, k2, k3 =coeff[0], coeff[1], coeff[2], coeff[3]
-
     
     print("\n" + "#" * 70)
     print(f" COEFFICIENTI DEFINITIVI PER {segment_name}")
@@ -118,9 +115,16 @@ def train_segment(
     print(f"K2_COLUMNS: float    = {k2:.4f}")
     print(f"K3_DIG_VAR: float   = {k3:.4f}")
     print("#" * 70 + "\n")
-    
-    return coeff, metrics
 
+    # In train_segment:
+    segment_dict = {
+        "k0": float(k0),
+        "k1_log_n": float(k1),
+        "k2_columns": float(k2),
+        "k3_digit_std": float(k3)
+    }
+    return segment_dict, metrics
+    
 def main():
     dataset = load_dataset(FEATURES_DATASET_FILEPATH)
     
@@ -130,17 +134,37 @@ def main():
     dataset_opening = [d for d in dataset if d.n > SPLIT_MIDGAME]
 
     segments = {
-        "ENDGAME (N <= 13)": dataset_endgame,
-        "MIDGAME (13 < N <= 40)": dataset_midgame,
-        "OPENING (N > 40)": dataset_opening
+        "ENDGAME": dataset_endgame,
+        "MIDGAME": dataset_midgame,
+        "OPENING": dataset_opening
     }
 
     print("\n" + "=" * 70)
     print(f"TRAINING A FASI CON REGRESSIONE ASIMMETRICA (ALPHA = {ALPHA_PENALTY})")
     print("=" * 70)
 
+    coeffs_to_save = {
+        "split_endgame": SPLIT_ENDGAME,
+        "split_midgame": SPLIT_MIDGAME
+    }
+    
+    # Mappiamo i nomi corretti attesi dall'estimatore
+    name_mapping = {
+        "ENDGAME": "k_endgame",
+        "MIDGAME": "k_midgame",
+        "OPENING": "k_opening"
+    }
+
     for name, subset in segments.items():
-        train_segment(name, subset)
+        segment_dict, _ = train_segment(name, subset)
+        coeffs_to_save[name_mapping[name]] = segment_dict
+
+    OUTPUT_FILEPATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(OUTPUT_FILEPATH, "w", encoding="utf-8") as file:
+        json.dump(coeffs_to_save, file, indent=4)
+        
+    print(f"Modello a scaglioni salvato con successo in {OUTPUT_FILEPATH}!")
+
 
 if __name__ == "__main__":
     main()

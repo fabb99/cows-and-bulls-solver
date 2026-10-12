@@ -18,6 +18,7 @@ from experiments.oracle_lab.models import FeatureRecord
 
 # Percorso del dataset arricchito
 FEATURES_DATASET_FILEPATH = Path("data/features_dataset.json")
+OUTPUT_FILEPATH = Path("data/models/geometric_model.json")
 
 SPLIT_ENDGAME: int = 13
 SPLIT_MIDGAME: int = 40
@@ -80,44 +81,6 @@ def train_linear_model(
     # 6. Ritorna (coeffs, metrics)
     return (coeffs, metrics)
 
-def train_segment(
-    segment_name: str, 
-    records: List[FeatureRecord]
-) -> Tuple[np.ndarray, Tuple[float, float, float]]:
-    """
-    Allena e valuta il Modello Geometrico (Modello 3) su uno specifico scaglione di dati.
-    
-    PRE: segment_name è una stringa descrittiva. records è una lista non vuota di FeatureRecord.
-    POST: Ritorna (coefficienti_K, metriche_(mae, rmse, r2)) e stampa a terminale 
-          la scheda di performance dello scaglione.
-    """
-    log_n = [r.log_n for r in records]
-    digits_std = [r.digit_variance for r in records]
-    col_entropy = [r.column_entropy for r in records]
-    target_m = [r.target_cost for r in records]
-
-    X = np.column_stack([log_n, digits_std, col_entropy])
-
-    coeff, metrics = train_linear_model(X,target_m)
-    
-    # Stampa tabella con: Numero Campioni, MAE, R², e i 4 coefficienti:
-    print(f"{'Numero':<12} | {'MAE (Errore)':<12} | {'R² (Accuratezza)':<15}")
-    print(f"{len(records):<12} | ±{metrics[0]:<11.3f} | {metrics[2] * 100:<14.2f}%")
-
-    k0, k1, k2, k3 = coeff[0], coeff[1], coeff[2], coeff[3]
-    print("\n" + "#" * 70)
-    print(f" COEFFICIENTI DEFINITIVI PER {segment_name}")
-    print("#" * 70)
-    print(f"K0_INTERCEPT: float = {k0:.4f}")
-    print(f"K1_LOG_N: float     = {k1:.4f}")
-    print(f"K2_DIGITS: float    = {k2:.4f}")
-    print(f"K3_COLUMNS: float   = {k3:.4f}")
-    print("\nFormula: Costo = K0 + (K1 * log2(n)) + (K2 * digits_ratio) + (K3 * col_entropy)")
-    print("#" * 70 + "\n")
-    # 5. Ritorna (coeffs, metrics)
-    return coeff, metrics
-
-
 def main():
     """
     Punto di ingresso principale della Fase 4:
@@ -132,34 +95,25 @@ def main():
     """
     dataset = load_dataset(FEATURES_DATASET_FILEPATH) 
 
-
-
     x_log_n = np.array([state.log_n for state in dataset])
     digits_radio = np.array([state.unique_digits_ratio for state in dataset])
     x_col_entropy = np.array([state.column_entropy for state in dataset])
     
     y_targets = np.array([state.target_cost for state in dataset])
 
-
-    #MODELLO 1
-    coeff1, metrics1 = train_linear_model(x_log_n, y_targets)
-
-    #MODELLO 2
-    coeff2, metrics2 = train_linear_model(np.column_stack([x_log_n, digits_radio]), y_targets)
-
-    #MODELLO 3
-    coeff3, metrics3 = train_linear_model(np.column_stack([x_log_n, digits_radio, x_col_entropy]), y_targets)
+    #MODELLO 
+    coeff, metrics = train_linear_model(np.column_stack([x_log_n, digits_radio, x_col_entropy]), y_targets)
 
     # 7. Tabella Comparativa dei 3 Modelli
     print("=" * 70)
     print(" TABELLA PERFORMANCE")
     print("=" * 70)
     print(f"{'Modello':<35} | {'MAE (Errore)':<12} | {'R² (Accuratezza)':<15}")
-    print(f"{'log2(N) + Column Entropy + Digit std':<35} | ±{metrics3[0]:<11.3f} | {metrics3[2] * 100:<14.2f}%")
+    print(f"{'log2(N) + Column Entropy + Digit std':<35} | ±{metrics[0]:<11.3f} | {metrics[2] * 100:<14.2f}%")
     print("=" * 70)
 
-    # 8. Formula Definitiva per il Modello Completo (Modello 3)
-    k0, k1, k2, k3 = coeff3[0], coeff3[1], coeff3[2], coeff3[3]
+    # Formula Definitiva per il Modello Completo 
+    k0, k1, k2, k3 = coeff[0], coeff[1], coeff[2], coeff[3]
     print("\n" + "#" * 70)
     print(" COEFFICIENTI DEFINITIVI")
     print("#" * 70)
@@ -170,15 +124,18 @@ def main():
     print("\nFormula: Costo = K0 + (K1 * log2(n)) + (K2 * digits_ratio) + (K3 * col_entropy)")
     print("#" * 70 + "\n")
 
-    dataset_opening = [d for d in dataset if d.n > SPLIT_MIDGAME]  
-    dataset_midgame = [d for d in dataset if SPLIT_ENDGAME < d.n <= SPLIT_MIDGAME] 
-    dataset_endgame = [d for d in dataset if d.n <= SPLIT_ENDGAME] 
+    output_dict = {
+        "k0": float(k0),
+        "k1_log_n": float(k1),
+        "k2_digits": float(k2),
+        "k3_columns": float(k3)
+    }
 
-    dict = {"OPENING" : dataset_opening, "MIDGAME": dataset_midgame, "ENDGAME": dataset_endgame} 
-
-    for k, v in dict.items():
-        train_segment(k, v)
-
+    OUTPUT_FILEPATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(OUTPUT_FILEPATH, "w", encoding="utf-8") as file:
+        json.dump(output_dict, file, indent=4)
+        
+    print(f"Modello globale salvato con successo in {OUTPUT_FILEPATH}!")
 
 if __name__ == "__main__":
     main()
