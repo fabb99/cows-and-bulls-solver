@@ -25,6 +25,9 @@ def build_decision_tree(
     POST: Restituisce un dizionario annidato che rappresenta i percorsi dell'algoritmo.
           Ogni foglia si ferma quando la valutazione è "++++".
     """
+    if history is None:
+        history = []
+
     num_solutions = len(possible_solutions) 
 
     if num_solutions == 1:

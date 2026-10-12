@@ -12,7 +12,7 @@ class HybridWeightedStrategy(BaseStrategy):
     (es. Entropy e Minimax) e li somma usando dei pesi specifici.
     """
     
-    def __init__(self, strategy_a: BaseStrategy, strategy_b: BaseStrategy,ishigher_better_a: bool, ishigher_better_b: bool, weight_a: float, weight_b: float, lookup: FeedbackLookup):
+    def __init__(self, strategy_a: BaseStrategy, strategy_b: BaseStrategy,ishigher_better_a: bool, ishigher_better_b: bool, weight_a: float, weight_b: float, lookup: FeedbackLookup= None):
         """
         PRE: strategy_a e strategy_b sono istanze già inizializzate. I pesi sono float (es. 0.94 e 0.06).
         POST: Inizializza l'oggetto ibrido.
@@ -24,7 +24,7 @@ class HybridWeightedStrategy(BaseStrategy):
         self.ishigher_better_b = ishigher_better_b
         self.weight_a = weight_a
         self.weight_b = weight_b
-        self.lookup = lookup
+        self.lookup = strategy_a.lookup # DA SISTEMARE
 
     def _normalize_scores(self, scores: dict[str, float], is_higher_better: bool) -> dict[str, float]:
         """
