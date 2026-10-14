@@ -13,3 +13,9 @@ __pycache__/
 
 data/*
 !data/.keep
+
+
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.DS_Store
