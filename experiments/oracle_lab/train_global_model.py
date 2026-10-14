@@ -20,8 +20,13 @@ from experiments.oracle_lab.models import FeatureRecord
 FEATURES_DATASET_FILEPATH = Path("data/features_dataset.json")
 OUTPUT_FILEPATH = Path("data/models/geometric_model.json")
 
-SPLIT_ENDGAME: int = 13
-SPLIT_MIDGAME: int = 40
+# ---------------------------------------------------------------------------
+# CONFIGURAZIONE ASIMMETRIA (La manopola di controllo)
+# ---------------------------------------------------------------------------
+# alpha = 0.50 -> Regressione standard simmetrica (quella di prima)
+# alpha = 0.80 -> Punisce le sottostime 4 volte più delle sovrastime (0.80 / 0.20 = 4x)
+# alpha = 0.85 -> Punisce le sottostime 5.6 volte più delle sovrastime (molto conservativo)
+ALPHA_PENALTY: float = 0.80
 
 def load_dataset(filepath: Path) -> List[FeatureRecord]:
     """
@@ -59,27 +64,46 @@ def compute_regression_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Tuple[
 
 def train_linear_model(
     X_features: np.ndarray, 
-    y_targets: np.ndarray
+    y_targets: np.ndarray,
+    alpha: float = ALPHA_PENALTY,
+    max_iter: int = 15
 ) -> Tuple[np.ndarray, Tuple[float, float, float]]:
     """
-    Risolve il sistema OLS con intercetta automatica K0 tramite NumPy SVD.
-    
-    PRE: 
-        - X_features è una matrice NumPy (N_samples, N_features).
-        - y_targets è un vettore 1D con i costi reali M.
-    POST: Ritorna (coefficienti, (mae, rmse, r2)).
+    Risolve il sistema lineare. Se alpha != 0.5, applica la regressione asimmetrica
+    tramite Minimi Quadrati Ponderati Iterati (IRLS).
     """
-    # 1. Crea la colonna di 1 con np.ones_like(y_targets)
-    # 2. Incolla con np.column_stack([colonna_uno, X_features])
-    x = np.column_stack([np.ones_like(y_targets), X_features])
-    # 3. Risolvi con np.linalg.lstsq(..., rcond=None)[0]
-    coeffs = np.linalg.lstsq(x, y_targets, rcond=None)[0]
-    # 4. Calcola le predizioni con l'operatore matriciale @
-    y_pred = x @ coeffs
-    # 5. Calcola le metriche con compute_regression_metrics(y_targets, y_pred)
-    metrics = compute_regression_metrics(y_targets, y_pred)
-    # 6. Ritorna (coeffs, metrics)
-    return (coeffs, metrics)
+    # 1. Aggiungiamo la colonna di 1 per l'intercetta K0
+    X = np.column_stack([np.ones_like(y_targets), X_features])
+    
+    # 2. Se alpha è 0.50, eseguiamo la classica regressione OLS simmetrica
+    if alpha == 0.50:
+        coeffs = np.linalg.lstsq(X, y_targets, rcond=None)[0]
+        y_pred = X @ coeffs
+        metrics = compute_regression_metrics(y_targets, y_pred)
+        return coeffs, metrics
+
+    # 3. REGRESSIONE ASIMMETRICA (IRLS - Iteratively Reweighted Least Squares)
+    # Partiamo da una stima OLS iniziale
+    coeffs = np.linalg.lstsq(X, y_targets, rcond=None)[0]
+
+    for _ in range(max_iter):
+        y_pred = X @ coeffs
+        residuals = y_targets - y_pred  # > 0 significa sottostima (la realtà è peggiore della stima)
+        
+        # Pesi asimmetrici: se sottostimiamo applichiamo alpha, altrimenti (1 - alpha)
+        weights = np.where(residuals > 0, alpha, 1.0 - alpha)
+        
+        # Risoluzione pesata (Weighted Least Squares)
+        sqrt_w = np.sqrt(weights)
+        X_weighted = X * sqrt_w[:, np.newaxis]
+        y_weighted = y_targets * sqrt_w
+        
+        coeffs = np.linalg.lstsq(X_weighted, y_weighted, rcond=None)[0]
+
+    # Previsioni finali sui target originali
+    y_pred_final = X @ coeffs
+    metrics = compute_regression_metrics(y_targets, y_pred_final)
+    return coeffs, metrics
 
 def main():
     """
@@ -87,8 +111,6 @@ def main():
     1. Carica il dataset da FEATURES_DATASET_FILEPATH.
     2. Stampa l'Analisi Esplorativa (EDA) completa con le correlazioni.
     3. Estrai i vettori di feature: log_n, digits_ratio, col_entropy e y_targets.
-    4. Allena il MODELLO 1: solo log_n.
-    5. Allena il MODELLO 2: np.column_stack([log_n, digits_ratio]).
     6. Allena il MODELLO 3: np.column_stack([log_n, digits_ratio, col_entropy]).
     7. Stampa la tabella comparativa che mette a confronto MAE e R² dei 3 modelli.
     8. Stampa l'equazione definitiva del modello vincitore con i coefficienti trovati!

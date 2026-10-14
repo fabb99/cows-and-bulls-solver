@@ -48,10 +48,10 @@ def print_comparison_dashboard(reports: dict[str, dict[str, any]]):
     print("=" * 80)
 
     # 1. TABELLA RIASSUNTIVA DEI KPI
-    print(f"{'Strategia':<20} | {'Caso Peggiore':<15} | {'Media Mosse':<15}")
+    print(f"{'Strategia':<25} | {'Caso Peggiore':<15} | {'Media Mosse':<15}")
     print("-" * 56)
     for name, data in reports.items():
-        print(f"{name:<20} | {data['Caso Peggiore']:<15} | {data['Media Mosse']:<15.5f}")
+        print(f"{name:<25} | {data['Caso Peggiore']:<15} | {data['Media Mosse']:<15.5f}")
 
     print("\n" + "=" * 80)
     print(" DETTAGLIO PARTITE RISOLTE PER NUMERO DI MOSSE")
@@ -59,7 +59,7 @@ def print_comparison_dashboard(reports: dict[str, dict[str, any]]):
 
     # 2. TABELLA DI DISTRIBUZIONE TURNO PER TURNO
     # Intestazione: Strategia | T1 | T2 | T3 | ...
-    header = f"{'Strategia':<20} | " + " | ".join([f"T{i:<3}" for i in range(1, max_turns + 1)])
+    header = f"{'Strategia':<25} | " + " | ".join([f"T{i:<3}" for i in range(1, max_turns + 1)])
     print(header)
     print("-" * len(header))
 
@@ -67,39 +67,26 @@ def print_comparison_dashboard(reports: dict[str, dict[str, any]]):
         dist = data["Distribuzione"]
         # Estraiamo quante partite sono state vinte a ciascun turno (0 se nessuna)
         row_values = [f"{dist.get(i, 0):<4}" for i in range(1, max_turns + 1)]
-        print(f"{name:<20} | " + " | ".join(row_values))
+        print(f"{name:<25} | " + " | ".join(row_values))
         
     print("=" * len(header) + "\n")
 
     #print_comparison_dashboard_extend(reports)
     #print_vertical_distribution_dashboard(reports)
 
-def print_comparison_dashboard_extend(reports: dict[str, dict[str, any]]):
-
-    first_strategy_data = next(iter(reports.values()))
-    available_feedbacks = first_strategy_data["Distribuzione dopo prima mossa"].keys()
-
-    
-    for fb in available_feedbacks:
-
-        this_max_turns = 8
-        print("\n" + "=" * 80)
-        print(f" DETTAGLIO PARTITE RISOLTE PER NUMERO DI MOSSE DOPO LA VALUTAZIONE |{fb_tuple_to_string(fb)}|")
-        print("=" * 80)
-
-        # 2. TABELLA DI DISTRIBUZIONE TURNO PER TURNO
-        # Intestazione: Strategia | T1 | T2 | T3 | ...
-        header = f"{'Strategia':<20} | " + " | ".join([f"T{i+1:<3}" for i in range(1, this_max_turns )])
-        print(header)
-        print("-" * len(header))
-
-        for name, data in reports.items():
-            dist = data["Distribuzione dopo prima mossa"][fb]
-            # Estraiamo quante partite sono state vinte a ciascun turno (0 se nessuna)
-            row_values = [f"{dist.get(i, 0):<4}" for i in range(1, this_max_turns )]
-            print(f"{name:<20} | " + " | ".join(row_values))
-            
-        print("=" * len(header) + "\n")
+def print_comparison_dashboard_extend(reports: dict[str, dict[str, any]],json_files: list[Path], list_to_value:list[str]):
+    for fb in generate_all_feedbacks():
+        if fb == (4, 0):
+            continue
+        print(f"\n\n VALUTAZIONE '{fb}'")
+        for file_path in json_files:
+            strategy_name = file_path.stem # Prende il nome del file senza estensione .json
+            if strategy_name not in list_to_value:
+                continue
+            #print(f"- Analisi '{fb}' di {strategy_name}...")
+            tree = load_tree_from_json(str(file_path))
+            reports[strategy_name] = analyze_tree(tree["children"].get(fb))
+        print_comparison_dashboard(reports)
 
 def main():
     trees_dir = Path("data/trees")
@@ -119,10 +106,17 @@ def main():
     print(f"Caricamento e analisi di {len(json_files)} alberi in corso...")
 
     list_to_value =["max_entropy", 
-                    "estimated_evm_pi", 
-                    "hybrid_eg_9406", 
-                    "estimated_evm_pith2",
+                    #"estimated_evm_pi", 
+                    "hybrid_eg_9406",
+                    "hybrid_eg_9405", 
+                    #"estimated_evm_pith2",
                     "estimated_evm_ul",
+                    "estimated_evm_ulg",
+                    #"greedy_minimax",
+                    #"routed_strategy_b",
+                    #"routed_strategy",
+                    "frankenstein_a_strategy",
+                    "frankenstein_d_strategy",
                     ]
 
     for file_path in json_files:
@@ -137,21 +131,7 @@ def main():
     print_comparison_dashboard(reports)
 
     # Mostra i risultati dopo la prima mossa
-    for fb in generate_all_feedbacks():
-        print(f"\n\n VALUTAZIONE '{fb}'")
-        if fb == (4, 0):
-            continue
-
-        for file_path in json_files:
-            strategy_name = file_path.stem # Prende il nome del file senza estensione .json
-            if strategy_name not in list_to_value:
-                continue
-            #print(f"- Analisi '{fb}' di {strategy_name}...")
-            tree = load_tree_from_json(str(file_path))
-            reports[strategy_name] = analyze_tree(tree["children"].get(fb))
-        print_comparison_dashboard(reports)
+    print_comparison_dashboard_extend(reports,json_files,list_to_value)
            
-
-
 if __name__ == "__main__":
     main()

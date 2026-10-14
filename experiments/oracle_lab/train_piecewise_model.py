@@ -21,10 +21,10 @@ OUTPUT_FILEPATH = Path("data/models/piecewise_model.json")
 # alpha = 0.50 -> Regressione standard simmetrica (quella di prima)
 # alpha = 0.80 -> Punisce le sottostime 4 volte più delle sovrastime (0.80 / 0.20 = 4x)
 # alpha = 0.85 -> Punisce le sottostime 5.6 volte più delle sovrastime (molto conservativo)
-ALPHA_PENALTY: float = 0.80
+ALPHA_PENALTY: float = 0.50
 
 SPLIT_ENDGAME: int = 13
-SPLIT_MIDGAME: int = 40
+SPLIT_MIDGAME: int = 43
 
 def load_dataset(filepath: Path) -> List[FeatureRecord]:
     """Carica i dati arricchiti dal file JSON."""

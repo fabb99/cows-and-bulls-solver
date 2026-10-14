@@ -15,7 +15,6 @@ from src.estimators.base import BaseBucketEstimator
 
 DEFAULT_WEIGHTS_FILEPATH = Path("data/models/geometric_model.json")
 
-
 class GeometricBucketEstimator(BaseBucketEstimator):
     """
     Stimatore geometrico globale a formula unica.

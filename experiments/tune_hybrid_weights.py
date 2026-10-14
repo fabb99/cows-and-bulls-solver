@@ -18,6 +18,8 @@ from src.strategies.base import BaseStrategy
 from src.strategies.entropy import EntropyStrategy
 from src.strategies.greedy_minimax import GreedyMinimaxStrategy
 from src.strategies.hybrid import HybridWeightedStrategy
+from src.strategies.estimated_evm import EstimatedEVMStrategy
+from src.estimators.piecewise import PiecewiseBucketEstimator
 from src.analysis.tree_builder import build_decision_tree
 from src.analysis.metrics import max_depth, average_depth
 
@@ -74,7 +76,6 @@ def extract_champions(tested_weights: Dict[float, Tuple[int, float]]) -> Tuple[D
     }
 
     return champion_avg, champion_defensive
-
 
 def run_adaptive_search(
     strategy_a: BaseStrategy,
@@ -140,7 +141,6 @@ def run_adaptive_search(
     # Verdetto Finale definitivo
     return extract_champions(tested_weights)
 
-
 def main():
     print("Inizializzazione ambiente e Lookup Table...")
     all_perms = generate_all_permutations()
@@ -149,22 +149,25 @@ def main():
     print("Ambiente pronto!\n")
 
     # 1. Istanziazione Generica delle due strategie da ottimizzare
-    strategy_a = EntropyStrategy(all_perms, lookup)
-    strategy_b = GreedyMinimaxStrategy(all_perms, lookup)
+    strategy_c = EntropyStrategy(all_perms, lookup)
+    strategy_a = EstimatedEVMStrategy(all_perms,lookup,PiecewiseBucketEstimator(),strategy_c,fallback_threshold=0)
     
+    strategy_b = GreedyMinimaxStrategy(all_perms, lookup)
+    #strategy_b = EntropyStrategy(all_perms, lookup)
+
     name_a = strategy_a.__class__.__name__
     name_b = strategy_b.__class__.__name__
 
     print("=" * 75)
     print(f" OTTIMIZZATORE IPERPARAMETRI ADATTIVO")
-    print(f" Strategia A: {name_a} (Higher is Better)")
-    print(f" Strategia B: {name_b} (Lower is Better)")
+    print(f" Strategia A: {name_a}")
+    print(f" Strategia B: {name_b}")
     print("=" * 75 + "\n")
 
     # 2. Esecuzione della Ricerca Adattiva
     champ_avg, champ_defensive = run_adaptive_search(
         strategy_a, strategy_b, all_perms,
-        is_higher_better_a=True, is_higher_better_b=False
+        is_higher_better_a=False, is_higher_better_b=False
     )
 
     # 3. Stampa dei Risultati a Schermo
