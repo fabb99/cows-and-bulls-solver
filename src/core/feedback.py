@@ -1,29 +1,31 @@
+"""
+Modulo: feedback
+Calcolo del feedback Cows and Bulls tra un'ipotesi e un segreto.
+"""
+
+# (bulls, cows): bulls = cifra giusta al posto giusto ('+'), cows = cifra giusta al posto sbagliato ('-')
+Feedback = tuple[int, int]
+
+
 def count_bulls(guess: str, secret: str) -> int:
     """
-    PRE: guess e secret stringhe della stessa lunghezza.
-    POST: Ritorna il numero di cifre corrette nella posizione corretta (+).
+    PRE:  guess e secret hanno la stessa lunghezza.
+    POST: numero di posizioni in cui guess e secret hanno la stessa cifra.
     """
-    num_bulls = 0
-    for (i, x) in enumerate(secret):
-        if x == guess[i]:
-            num_bulls += 1
-    return num_bulls
+    return sum(g == s for g, s in zip(guess, secret))
+
 
 def count_cows(guess: str, secret: str) -> int:
     """
-    PRE: guess e secret stringhe della stessa lunghezza.
-    POST: Ritorna il numero di cifre corrette nella posizione sbagliata (-).
+    PRE:  guess e secret hanno la stessa lunghezza e cifre distinte al loro interno.
+    POST: numero di cifre di guess presenti in secret ma in posizione diversa.
     """
-    num_cows = 0
-    for (i, x) in enumerate(secret):
-         for (j, y) in enumerate(guess):
-             if x==y and i!=j:
-                 num_cows += 1
-    return num_cows
+    return sum(g in secret and g != s for g, s in zip(guess, secret))
 
-def calculate_feedback(guess: str, secret: str) -> tuple[int,int]:
+
+def calculate_feedback(guess: str, secret: str) -> Feedback:
     """
-    PRE: guess e secret stringhe valide.
-    POST: Ritorna la stringa formattata (es. "++--").
+    PRE:  guess e secret sono stringhe valide (stessa lunghezza, cifre distinte).
+    POST: tupla (bulls, cows).
     """
-    return (count_bulls(guess,secret), count_cows(guess,secret))
+    return (count_bulls(guess, secret), count_cows(guess, secret))

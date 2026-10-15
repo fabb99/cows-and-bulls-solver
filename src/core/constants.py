@@ -1,7 +1,4 @@
-"""
-Modulo: constants
-Variabili statiche e globali di configurazione del gioco.
-"""
+"""Costanti globali di configurazione del gioco."""
 
-DIM: int = 4
-BASE: int = 10
+DIM: int = 4    # lunghezza della combinazione
+BASE: int = 10  # alfabeto: cifre '0'..'9'

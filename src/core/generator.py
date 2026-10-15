@@ -1,29 +1,33 @@
 """
-Modulo: nome_modulo
-Descrizione breve di cosa fa questo specifico file.
-Nessuna logica di business esterna deve trapelare qui.
+Modulo: generator
+Generazione dell'universo delle soluzioni e dei feedback possibili.
 """
-
-from src.core.constants import(BASE,DIM)
-
 from itertools import permutations
+
+from src.core.constants import BASE, DIM
+from src.core.feedback import Feedback
+
 
 def generate_all_permutations(dim: int = DIM, base: int = BASE) -> list[str]:
     """
-    PRE:
-        - nessuna
-    POST:
-        - restituisce la lista di tutte le stringhe di DIM cifre distinte
-        - la lista contiene 10 * 9 * 8 * 7 = 5040 elementi
+    PRE:  dim <= base.
+    POST: tutte le stringhe di `dim` cifre distinte in '0'..str(base-1), in ordine lessicografico.
+          Con i default: 10*9*8*7 = 5040 elementi.
     """
-    characters = [str(x) for x in range(0,base)]
-    return ["".join(p) for p in permutations(characters, dim)]
+    digits = [str(d) for d in range(base)]
+    return ["".join(p) for p in permutations(digits, dim)]
 
-def generate_all_feedbacks(dim: int = DIM) -> list[tuple[int,int]]:
+
+def generate_all_feedbacks(dim: int = DIM) -> list[Feedback]:
     """
-        PRE:
-            - nessuna
-        POST:
-            - restituisce la lista di tutte le valutazioni possibili
+    PRE:  dim >= 1.
+    POST: tutti i feedback (bulls, cows) realizzabili con `dim` cifre distinte.
+          Esclude (dim-1, 1), impossibile: se dim-1 cifre sono al posto giusto,
+          l'ultima non può essere "giusta ma fuori posto".
     """
-    return [tuple([x,y]) for x in range(0,dim+1) for y in range(0,dim-x+1) if not(x==3 and y==1)]
+    return [
+        (b, c)
+        for b in range(dim + 1)
+        for c in range(dim - b + 1)
+        if not (b == dim - 1 and c == 1)
+    ]
