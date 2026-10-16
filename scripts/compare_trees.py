@@ -7,7 +7,7 @@ Uso: python -m scripts.compare_trees [--trees A B ...] [--dir PERCORSO] [--branc
 """
 import argparse
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from src.analysis.metrics import average_depth, get_depth_distribution, max_depth
 from src.analysis.tree_builder import TreeNode
@@ -50,7 +50,7 @@ def print_dashboard(title: str, reports: dict[str, Report], prefix: str = "T") -
         print(f"{name:<28} | {row}")
 
 
-def load_trees(directory: Path, names: Optional[list[str]]) -> dict[str, TreeNode]:
+def load_trees(directory: Path, names: list[str] | None) -> dict[str, TreeNode]:
     """POST: {nome: albero} per i file richiesti (o tutti) in `directory`."""
     paths = sorted(directory.glob("*.json"))
     if names:

@@ -3,7 +3,7 @@ Modulo: base
 Interfaccia astratta delle strategie, con il flusso di scelta comune (template method).
 """
 from abc import ABC, abstractmethod
-from typing import ClassVar, Optional
+from typing import ClassVar
 
 from src.core.lookup_table import FeedbackLookup
 from src.core.signatures import get_representatives
@@ -43,7 +43,7 @@ class BaseStrategy(ABC):
         return self.all_permutations
 
     def choose_guess(
-        self, possible_solutions: list[str], history: Optional[list[str]] = None
+        self, possible_solutions: list[str], history: list[str] | None = None
     ) -> str:
         """
         PRE:  possible_solutions non vuota.

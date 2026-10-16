@@ -4,12 +4,11 @@ Serializzazione JSON degli alberi decisionali. Le chiavi tupla (bulls, cows) div
 stringhe "b,c" nel file e tornano tuple al caricamento.
 """
 import json
-from typing import Optional
 
 from src.analysis.tree_builder import TreeNode
 
 
-def _convert_keys(node: Optional[TreeNode], to_json: bool) -> Optional[TreeNode]:
+def _convert_keys(node: TreeNode | None, to_json: bool) -> TreeNode | None:
     """
     PRE:  node è un nodo (o None).
     POST: copia ricorsiva con le chiavi dei figli convertite

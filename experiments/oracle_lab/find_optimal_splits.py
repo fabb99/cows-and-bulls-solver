@@ -15,7 +15,6 @@ resta quello originale):
 
 Uso: python -m experiments.oracle_lab.find_optimal_splits
 """
-from typing import Optional
 
 import numpy as np
 
@@ -35,7 +34,7 @@ def compute_sum_squared_errors(y: np.ndarray) -> float:
 
 def find_best_single_split(
     n_values: np.ndarray, costs: np.ndarray, min_leaf_samples: int = 50
-) -> tuple[Optional[int], float, float]:
+) -> tuple[int | None, float, float]:
     """
     PRE:  n_values e costs hanno la stessa lunghezza.
     POST: (T*, riduzione relativa di SSE, SSE minima dopo il taglio).
@@ -43,7 +42,7 @@ def find_best_single_split(
           Riduzione = 1 - SSE_dopo / SSE_prima.
     """
     ss_tot = compute_sum_squared_errors(costs)
-    best_threshold: Optional[int] = None
+    best_threshold: int | None = None
     min_total_error = np.inf
 
     for t in sorted({int(x) for x in n_values}):

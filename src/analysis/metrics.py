@@ -3,13 +3,12 @@ Modulo: metrics
 Metriche di performance di un albero decisionale. Nessun I/O.
 Convenzione: una foglia è None e vale "partita vinta con la mossa del padre".
 """
-from typing import Optional
 
 from src.analysis.tree_builder import TreeNode
 from src.core.feedback import Feedback
 
 
-def max_depth(tree: Optional[TreeNode]) -> int:
+def max_depth(tree: TreeNode | None) -> int:
     """
     PRE:  tree è un nodo o None.
     POST: numero di mosse nel caso peggiore (0 per None).
@@ -19,7 +18,7 @@ def max_depth(tree: Optional[TreeNode]) -> int:
     return 1 + max(max_depth(child) for child in tree["children"].values())
 
 
-def calculate_total_moves_and_leaves(tree: Optional[TreeNode]) -> tuple[int, int]:
+def calculate_total_moves_and_leaves(tree: TreeNode | None) -> tuple[int, int]:
     """
     PRE:  tree è un nodo o None.
     POST: (somma delle mosse usate da tutte le partite, numero di partite).
@@ -35,13 +34,13 @@ def calculate_total_moves_and_leaves(tree: Optional[TreeNode]) -> tuple[int, int
     return (moves + leaves, leaves)
 
 
-def average_depth(tree: Optional[TreeNode]) -> float:
+def average_depth(tree: TreeNode | None) -> float:
     """PRE: tree valido. POST: numero medio di mosse per vincere (tutti i segreti equiprobabili)."""
     moves, games = calculate_total_moves_and_leaves(tree)
     return moves / games
 
 
-def get_depth_distribution(tree: Optional[TreeNode]) -> dict[int, int]:
+def get_depth_distribution(tree: TreeNode | None) -> dict[int, int]:
     """
     PRE:  tree valido.
     POST: {numero_di_mosse: partite concluse con quel numero di mosse}, ordinato per chiave.
@@ -53,7 +52,7 @@ def get_depth_distribution(tree: Optional[TreeNode]) -> dict[int, int]:
 
 
 def _fill_distribution(
-    node: Optional[TreeNode], depth: int, distribution: dict[int, int]
+    node: TreeNode | None, depth: int, distribution: dict[int, int]
 ) -> None:
     if node is None:
         return

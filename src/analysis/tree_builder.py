@@ -2,7 +2,8 @@
 Modulo: tree_builder
 Costruzione dell'albero decisionale completo di una strategia contro tutti i segreti possibili.
 """
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 from src.core.constants import WIN_FEEDBACK
 from src.core.engine import calculate_buckets
@@ -17,8 +18,8 @@ TreeNode = dict[str, Any]
 def build_decision_tree(
     strategy: BaseStrategy,
     possible_solutions: list[str],
-    history: Optional[list[str]] = None,
-    on_victory_callback: Optional[Callable[[int], None]] = None,
+    history: list[str] | None = None,
+    on_victory_callback: Callable[[int], None] | None = None,
 ) -> TreeNode:
     """
     PRE:  strategy è inizializzata; possible_solutions è non vuota.
@@ -38,7 +39,7 @@ def build_decision_tree(
         guess = strategy.choose_guess(possible_solutions, history)
 
     next_history = history + [guess]
-    children: dict[Feedback, Optional[TreeNode]] = {}
+    children: dict[Feedback, TreeNode | None] = {}
     for fb, bucket in calculate_buckets(guess, possible_solutions, strategy.lookup).items():
         if fb == WIN_FEEDBACK:
             children[fb] = None

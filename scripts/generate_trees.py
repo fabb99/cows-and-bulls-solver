@@ -15,7 +15,11 @@ from src.analysis.tree_io import save_tree_to_json
 from src.core.generator import generate_all_permutations
 from src.core.lookup_table import FeedbackLookup
 from src.paths import MODELS_DIR, ROUTING_POLICY_FILEPATH, TREES_DIR
-from src.strategies.zoo import ROUTED_NAMES, build_base_strategies, build_routed_strategies
+from src.strategies.zoo import (
+    ROUTED_NAMES,
+    build_base_strategies,
+    build_routed_strategies,
+)
 
 
 def main() -> None:

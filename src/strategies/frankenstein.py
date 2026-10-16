@@ -6,7 +6,6 @@ strategia di fallback.
 """
 import json
 from pathlib import Path
-from typing import Optional
 
 from src.core.lookup_table import FeedbackLookup
 from src.core.state import state_hash
@@ -50,7 +49,7 @@ class RoutedStrategy(BaseStrategy):
         return cls(all_permutations, lookup, policy, fallback)
 
     def choose_guess(
-        self, possible_solutions: list[str], history: Optional[list[str]] = None
+        self, possible_solutions: list[str], history: list[str] | None = None
     ) -> str:
         """
         PRE:  possible_solutions non vuota.

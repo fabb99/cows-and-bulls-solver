@@ -13,9 +13,9 @@ Uso: python -m experiments.train_router [--competitors NOME ...]
 """
 import argparse
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Callable, Optional
+from datetime import UTC, datetime
 
 from tqdm import tqdm
 
@@ -51,7 +51,7 @@ class RouterSolver:
         self,
         competitors: dict[str, BaseStrategy],
         lookup: FeedbackLookup,
-        on_new_state: Optional[Callable[[], None]] = None,
+        on_new_state: Callable[[], None] | None = None,
     ) -> None:
         """PRE: competitors non vuoto; tutti condividono lookup e universo."""
         if not competitors:
@@ -86,8 +86,8 @@ class RouterSolver:
         in_solutions = set(solutions)
         proposals = sorted({s.choose_guess(solutions, []) for s in self.competitors.values()})
 
-        best_avg: Optional[tuple[tuple, Plan]] = None
-        best_def: Optional[tuple[tuple, Plan]] = None
+        best_avg: tuple[tuple, Plan] | None = None
+        best_def: tuple[tuple, Plan] | None = None
         for guess in proposals:
             buckets = calculate_buckets(guess, solutions, self.lookup)
             if len(buckets) == 1 and WIN_FEEDBACK not in buckets:
@@ -173,7 +173,7 @@ def main() -> None:
 
     output = {
         "meta": {
-            "created": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "created": datetime.now(UTC).isoformat(timespec="seconds"),
             "competitors": list(competitors),
             "states_solved": solver.n_states,
             "attack": {"avg": plan_avg.total / n, "worst": plan_avg.depth},

@@ -4,7 +4,6 @@ EVM ricorsiva pura: costo atteso minimo esatto (equazione di Bellman), senza app
 Ottimizzata solo con memoization e Branch & Bound rigoroso.
 """
 import math
-from typing import Optional
 
 from src.core.constants import WIN_FEEDBACK
 from src.core.engine import calculate_buckets
@@ -22,7 +21,7 @@ class PureDeepEVMStrategy(BaseStrategy):
         all_permutations: list[str],
         lookup: FeedbackLookup,
         warmup_strategy: BaseStrategy,
-        precomputed_tablebase: Optional[dict[str, float]] = None,
+        precomputed_tablebase: dict[str, float] | None = None,
     ) -> None:
         """
         PRE:  warmup_strategy serve SOLO a trovare un primo upper bound reale

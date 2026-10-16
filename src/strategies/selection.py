@@ -2,7 +2,7 @@
 Modulo: selection
 Scelta deterministica della mossa migliore a partire dai punteggi.
 """
-from typing import Iterable
+from collections.abc import Iterable
 
 TIE_TOLERANCE: float = 1e-9
 

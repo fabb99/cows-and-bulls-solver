@@ -1,7 +1,7 @@
+from src.core.engine import calculate_buckets, filter_solutions
 from src.core.feedback import calculate_feedback
 from src.core.generator import generate_all_feedbacks, generate_all_permutations
 from src.core.lookup_table import FeedbackLookup
-from src.core.engine import calculate_buckets, filter_solutions
 from src.core.state import state_id
 
 

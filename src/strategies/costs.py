@@ -3,7 +3,7 @@ Modulo: costs
 Valore atteso del numero di mosse di un candidato, dato il costo di ogni bucket residuo.
 """
 import math
-from typing import Callable
+from collections.abc import Callable
 
 from src.core.constants import WIN_FEEDBACK
 from src.core.feedback import Feedback

@@ -3,7 +3,6 @@ Modulo: estimated_evm
 EVM stimata: costo atteso di un candidato = 1 + sum P(bucket) * stima(bucket),
 dove la stima viene da un BaseBucketEstimator.
 """
-from typing import Optional
 
 from src.core.engine import calculate_buckets
 from src.core.lookup_table import FeedbackLookup
@@ -20,7 +19,7 @@ class EstimatedEVMStrategy(BaseStrategy):
         all_permutations: list[str],
         lookup: FeedbackLookup,
         estimator: BaseBucketEstimator,
-        exact_fallback_strategy: Optional[BaseStrategy] = None,
+        exact_fallback_strategy: BaseStrategy | None = None,
         fallback_threshold: int = 0,
     ) -> None:
         """

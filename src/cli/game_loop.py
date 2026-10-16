@@ -2,7 +2,6 @@
 Modulo: game_loop
 Interazione da terminale e simulazione di partite.
 """
-from typing import Optional
 
 from src.core.constants import WIN_FEEDBACK
 from src.core.engine import filter_solutions
@@ -20,7 +19,7 @@ def fb_tuple_to_string(fb: Feedback) -> str:
     return "+" * fb[0] + "-" * fb[1]
 
 
-def parse_feedback(text: str) -> Optional[Feedback]:
+def parse_feedback(text: str) -> Feedback | None:
     """
     PRE:  text è l'input grezzo dell'utente.
     POST: (bulls, cows) se text è un feedback realizzabile, altrimenti None.
@@ -37,7 +36,7 @@ def parse_feedback(text: str) -> Optional[Feedback]:
     return fb if fb in set(generate_all_feedbacks()) else None
 
 
-def play_interactive(strategy: BaseStrategy, possible_solutions: list[str]) -> Optional[int]:
+def play_interactive(strategy: BaseStrategy, possible_solutions: list[str]) -> int | None:
     """
     PRE:  strategy inizializzata; possible_solutions è l'insieme iniziale (non vuoto).
     POST: stampa l'ipotesi della strategia e legge il feedback dell'utente finché non è

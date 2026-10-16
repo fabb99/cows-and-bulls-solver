@@ -3,8 +3,8 @@ Modulo: state
 Identità canonica di uno stato di gioco (insieme di soluzioni ancora possibili).
 Unica implementazione, usata da dataset, estimator, tablebase e DeepEVM.
 """
-from typing import Iterable
 import hashlib
+from collections.abc import Iterable
 
 
 def state_id(solutions: Iterable[str]) -> str:

@@ -9,7 +9,7 @@ Uso: python -m experiments.investigate_branch --feedback=- [--trees A B ...] [--
 import argparse
 import math
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from src.analysis.metrics import average_depth, get_depth_distribution
 from src.analysis.tree_io import load_tree_from_json
@@ -63,7 +63,7 @@ def main() -> None:
     estimator = load_estimator(MODELS_DIR, "piecewise")
 
     results: dict[str, dict[str, Any]] = {}
-    n_solutions: Optional[int] = None
+    n_solutions: int | None = None
     for path in sorted(args.dir.glob("*.json")):
         if args.trees and path.stem not in args.trees:
             continue

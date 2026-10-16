@@ -6,7 +6,7 @@ implementazione per ogni formula, quindi nessuno skew possibile tra le due fasi.
 """
 import math
 from collections import Counter
-from typing import Callable
+from collections.abc import Callable
 
 from src.core.constants import BASE, DIM
 

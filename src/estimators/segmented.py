@@ -9,8 +9,9 @@ Le soglie e i nomi delle feature vivono SOLO nel JSON.
 """
 import json
 from bisect import bisect_left
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Optional, Sequence
+from typing import Any
 
 from src.estimators.base import BaseBucketEstimator
 from src.features.bucket_features import FEATURES, compute_features
@@ -30,7 +31,7 @@ class SegmentedLinearEstimator(BaseBucketEstimator):
         splits: Sequence[int],
         segments: Sequence[dict[str, Any]],
         alpha: float = 0.5,
-        meta: Optional[dict[str, Any]] = None,
+        meta: dict[str, Any] | None = None,
     ) -> None:
         """
         PRE:  features ⊂ chiavi di FEATURES; splits strettamente crescenti;

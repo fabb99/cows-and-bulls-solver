@@ -2,7 +2,6 @@
 Modulo: lookup_table
 Tabella dei feedback precalcolata in memoria, con costruzione lazy.
 """
-from typing import Optional
 
 from src.core.feedback import Feedback, calculate_feedback
 
@@ -18,7 +17,7 @@ class FeedbackLookup:
     def __init__(self, domain: list[str]) -> None:
         """PRE: domain è la lista di tutte le combinazioni ammesse (senza duplicati)."""
         self._domain = domain
-        self._table: Optional[dict[str, dict[str, Feedback]]] = None
+        self._table: dict[str, dict[str, Feedback]] | None = None
 
     def _build_table(self) -> None:
         """

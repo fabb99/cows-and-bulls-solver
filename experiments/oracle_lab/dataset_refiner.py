@@ -10,7 +10,6 @@ Uso: python -m experiments.oracle_lab.dataset_refiner [--max-exact-n 10] [--max-
 import argparse
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 from tqdm import tqdm
 
@@ -39,7 +38,7 @@ def evaluate_state_tournament(
     solutions: list[str],
     competitors: dict[str, BaseStrategy],
     current_best_cost: float,
-) -> tuple[float, Optional[str]]:
+) -> tuple[float, str | None]:
     """
     PRE:  solutions ha N >= 3; competitors = {nome: strategia pronta}.
     POST: (costo, nome) della strategia che batte strettamente current_best_cost,

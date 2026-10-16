@@ -15,13 +15,17 @@ Esempi:
 """
 import argparse
 import hashlib
-from datetime import datetime, timezone
+from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional, Sequence
 
 import numpy as np
 
-from experiments.oracle_lab.config import DEFAULT_SPLITS, FEATURES_DATASET_FILEPATH, MODELS_DIR
+from experiments.oracle_lab.config import (
+    DEFAULT_SPLITS,
+    FEATURES_DATASET_FILEPATH,
+    MODELS_DIR,
+)
 from experiments.oracle_lab.models import FeatureRecord
 from experiments.oracle_lab.regression import (
     compute_regression_metrics,
@@ -43,7 +47,7 @@ def train_segmented_model(
     alpha: float = 0.5,
     k_folds: int = 5,
     seed: int = 0,
-    dataset_sha256: Optional[str] = None,
+    dataset_sha256: str | None = None,
 ) -> SegmentedLinearEstimator:
     """
     PRE:  records con le feature richieste; splits crescenti.
@@ -83,7 +87,7 @@ def train_segmented_model(
         segments=segments,
         alpha=alpha,
         meta={
-            "created": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "created": datetime.now(UTC).isoformat(timespec="seconds"),
             "dataset_sha256": dataset_sha256,
             "k_folds": k_folds,
             "seed": seed,
