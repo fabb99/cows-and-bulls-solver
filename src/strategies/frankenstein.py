@@ -1,96 +1,72 @@
 """
-Modulo: routed (src/strategies)
-Contiene RoutedStrategy: il "Frankenstein" definitivo.
-Legge la Routing Policy da file e delega ogni mossa alla strategia specialista 
-più forte per l'esatto storico dei feedback ricevuti finora.
+Modulo: frankenstein
+RoutedStrategy: gioca le mosse prescritte da una policy {state_hash: mossa},
+costruita da experiments/train_router.py. Per stati fuori policy delega a una
+strategia di fallback.
 """
-from typing import List, Dict, Optional, Tuple
 import json
 from pathlib import Path
-from math import inf
+from typing import Optional
 
+from src.core.lookup_table import FeedbackLookup
+from src.core.state import state_hash
 from src.strategies.base import BaseStrategy
-from src.core.constants import DIM
 
-DEFAULT_POLICY_FILEPATH = Path("data/models/routing_policy.json")
+POLICY_STYLES = ("best_average", "pareto_defensive")
 
 
 class RoutedStrategy(BaseStrategy):
-    """
-    Seleziona la strategia ottima in base allo storico dei feedback della partita corrente.
-    """
+    higher_is_better = False
 
     def __init__(
-        self, 
-        all_permutations: List[str], 
-        lookup, 
-        available_strategies: Dict[str, BaseStrategy],
-        policy_filepath: Path = DEFAULT_POLICY_FILEPATH,
-        style: str = "pareto_defensive", 
-        fallback_strategy_name: str = "max_entropy"
-    ):
+        self,
+        all_permutations: list[str],
+        lookup: FeedbackLookup,
+        policy: dict[str, str],
+        fallback: BaseStrategy,
+    ) -> None:
+        """
+        PRE:  policy = {state_hash(soluzioni): mossa}; fallback è una strategia valida.
+        """
         super().__init__(all_permutations, lookup)
-        self.available_strategies = available_strategies
-        self.fallback_strategy_name = fallback_strategy_name
-        self.style = style
-        
-        # Carica il JSON e prende SOLO il ramo dello stile selezionato:
-        full_policy = self._load_policy(policy_filepath)
-        self.routing_policy = full_policy.get(style, full_policy)
+        self.policy = policy
+        self.fallback = fallback
+        self._legal = set(all_permutations)
 
-    def _load_policy(self, filepath: Path) -> Dict[str, str]:
-        """Carica il JSON della policy."""
-        if filepath.exists():
-            with open(filepath, "r", encoding="utf-8") as f:
-                return json.load(f)
-        return {}
+    @classmethod
+    def from_file(
+        cls,
+        path: Path,
+        style: str,
+        all_permutations: list[str],
+        lookup: FeedbackLookup,
+        fallback: BaseStrategy,
+    ) -> "RoutedStrategy":
+        """PRE: path è un routing_policy.json valido; style in POLICY_STYLES."""
+        if style not in POLICY_STYLES:
+            raise ValueError(f"style deve essere uno di {POLICY_STYLES}")
+        with open(path, "r", encoding="utf-8") as file:
+            policy = json.load(file)[style]
+        return cls(all_permutations, lookup, policy, fallback)
 
-    def _deduce_feedback_history(self, possible_solutions: List[str], history_moves: List[str]) -> List[Tuple[int, int]]:
+    def choose_guess(
+        self, possible_solutions: list[str], history: Optional[list[str]] = None
+    ) -> str:
         """
-        Deduce tutti i feedback ricevuti finora confrontando la prima soluzione valida
-        con la lista delle mosse giocate.
+        PRE:  possible_solutions non vuota.
+        POST: con N <= 2 la prima soluzione; altrimenti la mossa in policy per questo
+              esatto insieme di soluzioni (se legale), altrimenti quella del fallback.
         """
-        if not history_moves or not possible_solutions:
-            return []
-            
-        secret_sample = possible_solutions[0]
-        feedbacks = []
-        for move in history_moves:
-            fb = self.lookup.get_feedback(move, secret_sample)
-            feedbacks.append(fb)
-            
-        return feedbacks
+        if not possible_solutions:
+            raise ValueError("possible_solutions è vuota")
+        if len(possible_solutions) <= 2:
+            return possible_solutions[0]
+        guess = self.policy.get(state_hash(possible_solutions))
+        if guess is not None and guess in self._legal:
+            return guess
+        return self.fallback.choose_guess(possible_solutions, history)
 
-    def choose_guess(self, possible_solutions: List[str], history: List[str] = None) -> str:
-        """
-        Seleziona il "Cervello" giusto per questo specifico turno e delega a lui la mossa.
-        """
-        if history is None:
-            history = []
-            
-        # 1. Determina lo storico dei feedback (la nostra "posizione" nell'albero)
-        if len(history) == 0:
-            history_key = "START"
-        else:
-            feedback_list = self._deduce_feedback_history(possible_solutions, history)
-            history_key = " -> ".join([str(fb) for fb in feedback_list])
-
-        # 2. Cerca la strategia vincente nel file JSON
-        #    Se non esiste (un ramo mai esplorato o fuori policy), usa il fallback (es. la strategia dell'ultimo turno noto)
-        active_strategy_name = self.routing_policy.get(history_key, self.fallback_strategy_name)
-        
-        # Assicuriamoci che esista nel nostro dizionario
-        if active_strategy_name not in self.available_strategies:
-            active_strategy_name = self.fallback_strategy_name
-            
-        active_strategy = self.available_strategies[active_strategy_name]
-        
-        # 3. DELEGA COMPLETA AL CAMPIONE DI QUESTO RAMO
-        return active_strategy.choose_guess(possible_solutions, history)
-
-    def evaluate_candidates(self, candidates_to_test: List[str], possible_solutions: List[str]) -> Dict[str, float]:
-        """
-        Metodo pass-through per mantenere compatibilità con eventuali test esterni.
-        Restituisce semplicemente 0 per tutte, poiché la scelta la deleghiamo totalmente.
-        """
-        return {c: 0.0 for c in candidates_to_test}
+    def evaluate_candidates(
+        self, candidates_to_test: list[str], possible_solutions: list[str]
+    ) -> dict[str, float]:
+        raise NotImplementedError("RoutedStrategy non valuta candidati: segue la policy")

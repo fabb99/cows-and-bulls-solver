@@ -1,137 +1,93 @@
 """
 Modulo: compare_trees (Script)
-Legge gli alberi salvati in formato JSON e stampa una tabella comparativa estensibile.
+Confronta gli alberi salvati: media, caso peggiore e distribuzione dei turni.
+Con --branches ripete il confronto per ogni feedback del primo turno (turni RELATIVI).
+
+Uso: python -m scripts.compare_trees [--trees A B ...] [--dir PERCORSO] [--branches]
 """
+import argparse
 from pathlib import Path
+from typing import Any, Optional
+
+from src.analysis.metrics import average_depth, get_depth_distribution, max_depth
+from src.analysis.tree_builder import TreeNode
 from src.analysis.tree_io import load_tree_from_json
-from src.analysis.metrics import (max_depth, average_depth, get_depth_distribution, get_depth_distribution_next_move)
 from src.cli.game_loop import fb_tuple_to_string
+from src.core.constants import WIN_FEEDBACK
 from src.core.generator import generate_all_feedbacks
+from src.paths import TREES_DIR
+
+Report = dict[str, Any]
 
 
-# Definiamo una lista di "Metriche" da calcolare. 
-# Sono semplicemente le funzioni che hai già scritto in src/analysis/metrics.py!
-# Se in futuro ne aggiungi una, ti basta aggiungerla a questa lista.
-METRICS_PIPELINE = [
-    ("Caso Peggiore", max_depth),
-    ("Media Mosse", average_depth),
-    ("Distribuzione", get_depth_distribution),
-    ("Distribuzione dopo prima mossa", get_depth_distribution_next_move)
-]
+def analyze_tree(tree: TreeNode) -> Report:
+    """PRE: tree valido. POST: {'avg', 'worst', 'dist'}."""
+    return {
+        "avg": average_depth(tree),
+        "worst": max_depth(tree),
+        "dist": get_depth_distribution(tree),
+    }
 
-def analyze_tree(tree: dict) -> dict[str, any]:
-    """
-    PRE: tree è un albero caricato da JSON.
-    POST: Esegue tutte le metriche definite in METRICS_PIPELINE sull'albero
-          e restituisce un dizionario report.
-          Es: {"Caso Peggiore": 7, "Media Mosse": 5.52, ...}
-    """
-    report = {}
-    for name, metric in METRICS_PIPELINE:
-        report[name] = metric(tree) 
-    return report
 
-def print_comparison_dashboard(reports: dict[str, dict[str, any]]):
-    """
-    PRE: reports è un dizionario {nome_strategia: report_calcolato}.
-    POST: Stampa in console una tabella ASCII formattata e allineata.
-    """
+def print_dashboard(title: str, reports: dict[str, Report], prefix: str = "T") -> None:
+    """PRE: reports = {nome: Report} (può essere vuoto). POST: stampa le tabelle."""
     if not reports:
-        print("Nessun albero trovato da confrontare!")
         return
-
-    # Troviamo la massima profondità registrata tra tutte le strategie per dimensionare le colonne dei turni
-    max_turns = max(report["Caso Peggiore"] for report in reports.values())
-
-    print("\n" + "=" * 80)
-    print(" DASHBOARD COMPARATIVA STRATEGIE (Cows and Bulls)")
-    print("=" * 80)
-
-    # 1. TABELLA RIASSUNTIVA DEI KPI
-    print(f"{'Strategia':<25} | {'Caso Peggiore':<15} | {'Media Mosse':<15}")
-    print("-" * 56)
-    for name, data in reports.items():
-        print(f"{name:<25} | {data['Caso Peggiore']:<15} | {data['Media Mosse']:<15.5f}")
-
-    print("\n" + "=" * 80)
-    print(" DETTAGLIO PARTITE RISOLTE PER NUMERO DI MOSSE")
-    print("=" * 80)
-
-    # 2. TABELLA DI DISTRIBUZIONE TURNO PER TURNO
-    # Intestazione: Strategia | T1 | T2 | T3 | ...
-    header = f"{'Strategia':<25} | " + " | ".join([f"T{i:<3}" for i in range(1, max_turns + 1)])
+    width = 82
+    max_turns = max(r["worst"] for r in reports.values())
+    print("\n" + "=" * width)
+    print(f" {title}")
+    print("=" * width)
+    print(f"{'Strategia':<28} | {'Caso peggiore':<13} | {'Media mosse':<11}")
+    print("-" * 58)
+    for name, r in sorted(reports.items(), key=lambda kv: kv[1]["avg"]):
+        print(f"{name:<28} | {r['worst']:<13} | {r['avg']:<11.5f}")
+    header = f"\n{'Strategia':<28} | " + " | ".join(f"{prefix}{i:<4}" for i in range(1, max_turns + 1))
     print(header)
     print("-" * len(header))
+    for name, r in reports.items():
+        row = " | ".join(f"{r['dist'].get(i, 0):<5}" for i in range(1, max_turns + 1))
+        print(f"{name:<28} | {row}")
 
-    for name, data in reports.items():
-        dist = data["Distribuzione"]
-        # Estraiamo quante partite sono state vinte a ciascun turno (0 se nessuna)
-        row_values = [f"{dist.get(i, 0):<4}" for i in range(1, max_turns + 1)]
-        print(f"{name:<25} | " + " | ".join(row_values))
-        
-    print("=" * len(header) + "\n")
 
-    #print_comparison_dashboard_extend(reports)
-    #print_vertical_distribution_dashboard(reports)
+def load_trees(directory: Path, names: Optional[list[str]]) -> dict[str, TreeNode]:
+    """POST: {nome: albero} per i file richiesti (o tutti) in `directory`."""
+    paths = sorted(directory.glob("*.json"))
+    if names:
+        paths = [p for p in paths if p.stem in names]
+        missing = set(names) - {p.stem for p in paths}
+        if missing:
+            print(f"Alberi non trovati in {directory}: {sorted(missing)}")
+    return {p.stem: load_tree_from_json(str(p)) for p in paths}
 
-def print_comparison_dashboard_extend(reports: dict[str, dict[str, any]],json_files: list[Path], list_to_value:list[str]):
-    for fb in generate_all_feedbacks():
-        if fb == (4, 0):
-            continue
-        print(f"\n\n VALUTAZIONE '{fb}'")
-        for file_path in json_files:
-            strategy_name = file_path.stem # Prende il nome del file senza estensione .json
-            if strategy_name not in list_to_value:
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Confronta gli alberi decisionali.")
+    parser.add_argument("--trees", nargs="+", default=None)
+    parser.add_argument("--dir", type=Path, default=TREES_DIR)
+    parser.add_argument("--branches", action="store_true")
+    args = parser.parse_args()
+
+    if not args.dir.exists():
+        raise SystemExit(f"Cartella {args.dir} inesistente")
+    trees = load_trees(args.dir, args.trees)
+    if not trees:
+        raise SystemExit(f"Nessun albero in {args.dir}")
+
+    print_dashboard("CONFRONTO STRATEGIE (turni assoluti)", {n: analyze_tree(t) for n, t in trees.items()})
+
+    if args.branches:
+        for fb in generate_all_feedbacks():
+            if fb == WIN_FEEDBACK:
                 continue
-            #print(f"- Analisi '{fb}' di {strategy_name}...")
-            tree = load_tree_from_json(str(file_path))
-            reports[strategy_name] = analyze_tree(tree["children"].get(fb))
-        print_comparison_dashboard(reports)
+            reports = {
+                name: analyze_tree(tree["children"][fb])
+                for name, tree in trees.items()
+                if tree["children"].get(fb) is not None
+            }
+            label = fb_tuple_to_string(fb) or "0"
+            print_dashboard(f"RAMO '{label}' dopo il primo turno (turni relativi)", reports, prefix="+")
 
-def main():
-    trees_dir = Path("data/trees")
-    
-    if not trees_dir.exists():
-        print(f"Errore: La cartella {trees_dir} non esiste!")
-        return
 
-    # Trova tutti i file .json nella cartella
-    json_files = sorted(trees_dir.glob("*.json"))
-
-    if not json_files:
-        print("Nessun albero trovato in data/trees/. Esegui prima scripts/generate_trees.py!")
-        return
-
-    reports = {}
-    print(f"Caricamento e analisi di {len(json_files)} alberi in corso...")
-
-    list_to_value =["max_entropy", 
-                    #"estimated_evm_pi", 
-                    "hybrid_eg_9406",
-                    "hybrid_eg_9405", 
-                    #"estimated_evm_pith2",
-                    "estimated_evm_ul",
-                    "estimated_evm_ulg",
-                    #"greedy_minimax",
-                    #"routed_strategy_b",
-                    #"routed_strategy",
-                    "frankenstein_a_strategy",
-                    "frankenstein_d_strategy",
-                    ]
-
-    for file_path in json_files:
-        strategy_name = file_path.stem # Prende il nome del file senza estensione .json
-        if strategy_name not in list_to_value:
-            continue
-        print(f"- Analisi di {strategy_name}...")
-        tree = load_tree_from_json(str(file_path))
-        reports[strategy_name] = analyze_tree(tree)
-
-    # Mostra i risultati 
-    print_comparison_dashboard(reports)
-
-    # Mostra i risultati dopo la prima mossa
-    print_comparison_dashboard_extend(reports,json_files,list_to_value)
-           
 if __name__ == "__main__":
     main()

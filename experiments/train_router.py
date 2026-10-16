@@ -1,197 +1,196 @@
 """
-Modulo: train_router (Script - experiments/oracle_lab/)
-Il Torneo Frankenstein Doppio (Routing Dinamico Multi-Obiettivo):
-1. Campione d'Attacco (Best Average): minimizza sempre la media.
-2. Campione Difensivo (Pareto): minimizza prima il caso peggiore, poi la media.
+Modulo: train_router (Script)
+Router a programmazione dinamica per stato. In ogni stato i competitor propongono una
+mossa; per ogni mossa distinta i figli si risolvono ricorsivamente con lo stesso router
+(memoizzazione per stato). Due obiettivi:
+  - best_average:     minimizza (mosse totali, caso peggiore)
+  - pareto_defensive: minimizza (caso peggiore, mosse totali)
+Garanzia: il risultato non è mai peggiore del miglior competitor sull'obiettivo primario.
+Nota: per la difesa il totale è un'approssimazione (ogni figlio ottimizza la propria
+coppia lessicograficamente); il caso peggiore è invece esatto.
 
-In ogni bivio, decreta due vincitori e scende in entrambi i sotto-alberi vincenti 
-(senza ricalcolarli se coincidono).
-Salva la politica finale doppia in data/models/routing_policy.json.
+Uso: python -m experiments.train_router [--competitors NOME ...]
 """
-from typing import List, Dict, Tuple
-from pathlib import Path
+import argparse
 import json
-import math
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Callable, Optional
+
 from tqdm import tqdm
 
-from src.core.constants import DIM
+from src.core.constants import WIN_FEEDBACK
+from src.core.engine import calculate_buckets
 from src.core.generator import generate_all_permutations
 from src.core.lookup_table import FeedbackLookup
-from src.analysis.tree_builder import build_decision_tree
-from src.analysis.metrics import max_depth, calculate_total_moves_and_leaves
+from src.core.state import state_hash
+from src.paths import MODELS_DIR, ROUTING_POLICY_FILEPATH
 from src.strategies.base import BaseStrategy
+from src.strategies.zoo import build_base_strategies
 
-from src.strategies.entropy import EntropyStrategy
-from src.strategies.greedy_minimax import GreedyMinimaxStrategy
-from src.strategies.estimated_evm import EstimatedEVMStrategy
-from src.strategies.hybrid import HybridWeightedStrategy
-from src.estimators.geometric import GeometricBucketEstimator
-from src.estimators.piecewise import PiecewiseBucketEstimator
-
-ROUTING_POLICY_FILEPATH = Path("data/models/routing_policy.json")
-
-# Barra globale
-pbar = tqdm(desc="Bivi Esplorati", unit=" nodi")
+DEFAULT_COMPETITORS = [
+    "max_entropy",
+    "estimated_evm_piecewise",
+    "estimated_evm_geometric",
+    "hybrid_evm_minimax",
+    "hybrid_entropy_minimax",
+]
 
 
-def simulate_tournament(
-    solutions: List[str], 
-    history_feedback: List[Tuple[int, int]], 
-    competitors: Dict[str, BaseStrategy],
-    policy_avg: Dict[str, str],
-    policy_def: Dict[str, str],
-    current_winning_strategy_name: str
-) -> None:
-    """Torneo ricorsivo a due teste (Attacco e Difesa)."""
-    num_solutions = len(solutions)
-    if num_solutions <= 2:
-        return
-        
-    if not history_feedback:
-        history_key = "START"
-    else:
-        history_key = " -> ".join([str(fb) for fb in history_feedback])
-        
-    pbar.set_postfix_str(f"Stato: {history_key[-20:]} | Sol: {num_solutions}")
+@dataclass(frozen=True)
+class Plan:
+    """Mossa scelta in uno stato e suo costo: mosse totali su tutte le partite e profondità."""
 
-    # Attacco (Minime mosse totali)
-    best_avg_moves = math.inf
-    avg_tree_max_depth = math.inf
-    winner_avg = current_winning_strategy_name
-    tree_avg = None
-
-    # Difesa (Minimo caso peggiore, poi minime mosse totali)
-    best_max_depth = math.inf
-    def_tree_moves = math.inf
-    winner_def = current_winning_strategy_name
-    tree_def = None
-
-    # IL TORNEO
-    for name, strategy in competitors.items():
-        tree = build_decision_tree(strategy, solutions, history=["bypass"])
-        
-        # Estraiamo gli INTERI PURI
-        moves, _ = calculate_total_moves_and_leaves(tree)  # Numero intero di mosse
-        m_depth = max_depth(tree)                          # Numero intero di livelli
-        
-        # ----------------------------------------------------
-        # 1. AGGIORNAMENTO ATTACCO (Pura Efficienza Numerica)
-        # ----------------------------------------------------
-        if moves < best_avg_moves:
-            best_avg_moves = moves
-            avg_tree_max_depth = m_depth
-            winner_avg = name
-            tree_avg = tree
-        elif moves == best_avg_moves:  # <--- UGUAGLIANZA ESATTA TRA INTERI!
-            if m_depth < avg_tree_max_depth:
-                avg_tree_max_depth = m_depth
-                winner_avg = name
-                tree_avg = tree
-
-        # ----------------------------------------------------
-        # 2. AGGIORNAMENTO DIFESA (Massima Sicurezza Pareto)
-        # ----------------------------------------------------
-        if m_depth < best_max_depth:
-            best_max_depth = m_depth
-            def_tree_moves = moves
-            winner_def = name
-            tree_def = tree
-        elif m_depth == best_max_depth:  # <--- UGUAGLIANZA ESATTA TRA INTERI!
-            if moves < def_tree_moves:
-                def_tree_moves = moves
-                winner_def = name
-                tree_def = tree
-
-    # REGISTRAZIONE POLICY
-    policy_avg[history_key] = winner_avg
-    policy_def[history_key] = winner_def
-    pbar.update(1)
-    
-    # Controllo: Le due politiche hanno scelto la stessa mossa (guess)?
-    same_guess_chosen = (tree_avg["guess"] == tree_def["guess"])
-    
-    # DISCESA BIANCONIGLIO ATTACCO
-    if tree_avg is not None and "children" in tree_avg:
-        for feedback, child_node in tree_avg["children"].items():
-            if child_node is not None and feedback != (DIM, 0):
-                nuovo_storico = history_feedback + [feedback]
-                chiave_figlio = " -> ".join([str(fb) for fb in nuovo_storico])
-                
-                # Scendiamo solo se non ci siamo già passati
-                if chiave_figlio not in policy_avg:
-                    simulate_tournament(child_node["possible_solutions"], nuovo_storico, competitors, policy_avg, policy_def, winner_avg)
-
-    # DISCESA BIANCONIGLIO DIFESA
-    # Scendiamo nell'albero difensivo SOLO se la mossa scelta è DIVERSA da quella d'attacco.
-    # Altrimenti, il ramo d'attacco ha già esplorato i figli e registrato le decisioni ottimali anche per la difesa!
-    if not same_guess_chosen and tree_def is not None and "children" in tree_def:
-        for feedback, child_node in tree_def["children"].items():
-            if child_node is not None and feedback != (DIM, 0):
-                nuovo_storico = history_feedback + [feedback]
-                chiave_figlio = " -> ".join([str(fb) for fb in nuovo_storico])
-                
-                # Scendiamo solo se non ci siamo già passati
-                if chiave_figlio not in policy_def:
-                    simulate_tournament(child_node["possible_solutions"], nuovo_storico, competitors, policy_avg, policy_def, winner_def)
+    total: int
+    depth: int
+    guess: str
 
 
-def main():
+class RouterSolver:
+    def __init__(
+        self,
+        competitors: dict[str, BaseStrategy],
+        lookup: FeedbackLookup,
+        on_new_state: Optional[Callable[[], None]] = None,
+    ) -> None:
+        """PRE: competitors non vuoto; tutti condividono lookup e universo."""
+        if not competitors:
+            raise ValueError("Serve almeno un competitor")
+        self.competitors = competitors
+        self.lookup = lookup
+        self.on_new_state = on_new_state
+        self._memo: dict[str, tuple[Plan, Plan]] = {}
+
+    @property
+    def n_states(self) -> int:
+        return len(self._memo)
+
+    def solve(self, solutions: list[str]) -> tuple[Plan, Plan]:
+        """
+        PRE:  solutions non vuota.
+        POST: (piano d'attacco, piano difensivo) dello stato. Con N <= 2 la mossa è la
+              prima soluzione (come in build_decision_tree): costo 1 mossa / 3 mosse totali.
+        """
+        n = len(solutions)
+        if n == 1:
+            plan = Plan(1, 1, solutions[0])
+            return plan, plan
+        if n == 2:
+            plan = Plan(3, 2, solutions[0])
+            return plan, plan
+
+        key = state_hash(solutions)
+        if key in self._memo:
+            return self._memo[key]
+
+        in_solutions = set(solutions)
+        proposals = sorted({s.choose_guess(solutions, []) for s in self.competitors.values()})
+
+        best_avg: Optional[tuple[tuple, Plan]] = None
+        best_def: Optional[tuple[tuple, Plan]] = None
+        for guess in proposals:
+            buckets = calculate_buckets(guess, solutions, self.lookup)
+            if len(buckets) == 1 and WIN_FEEDBACK not in buckets:
+                continue  # non partiziona
+            tot_a, dep_a, tot_d, dep_d = n, 1, n, 1
+            for fb, bucket in buckets.items():
+                if fb == WIN_FEEDBACK:
+                    continue
+                child_a, child_d = self.solve(bucket)
+                tot_a += child_a.total
+                dep_a = max(dep_a, 1 + child_a.depth)
+                tot_d += child_d.total
+                dep_d = max(dep_d, 1 + child_d.depth)
+            not_solution = guess not in in_solutions
+            key_a = (tot_a, dep_a, not_solution, guess)
+            key_d = (dep_d, tot_d, not_solution, guess)
+            if best_avg is None or key_a < best_avg[0]:
+                best_avg = (key_a, Plan(tot_a, dep_a, guess))
+            if best_def is None or key_d < best_def[0]:
+                best_def = (key_d, Plan(tot_d, dep_d, guess))
+
+        if best_avg is None or best_def is None:
+            raise RuntimeError(f"Nessuna mossa valida proposta per uno stato di N={n}")
+        result = (best_avg[1], best_def[1])
+        self._memo[key] = result
+        if self.on_new_state is not None:
+            self.on_new_state()
+        return result
+
+    def plan(self, solutions: list[str], objective: str) -> Plan:
+        """PRE: objective in {'avg', 'def'}. POST: piano memoizzato dello stato."""
+        avg_plan, def_plan = self.solve(solutions)
+        return avg_plan if objective == "avg" else def_plan
+
+
+def extract_policy(solver: RouterSolver, root: list[str], objective: str) -> dict[str, str]:
+    """
+    PRE:  root già risolto da solver (o risolvibile).
+    POST: {state_hash: mossa} per i soli stati con N >= 3 raggiungibili seguendo la policy.
+    """
+    policy: dict[str, str] = {}
+    stack = [root]
+    while stack:
+        solutions = stack.pop()
+        if len(solutions) <= 2:
+            continue
+        key = state_hash(solutions)
+        if key in policy:
+            continue
+        plan = solver.plan(solutions, objective)
+        policy[key] = plan.guess
+        for fb, bucket in calculate_buckets(plan.guess, solutions, solver.lookup).items():
+            if fb != WIN_FEEDBACK:
+                stack.append(bucket)
+    return policy
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Router a programmazione dinamica.")
+    parser.add_argument("--competitors", nargs="+", default=DEFAULT_COMPETITORS)
+    parser.add_argument("--out", type=str, default=str(ROUTING_POLICY_FILEPATH))
+    args = parser.parse_args()
+
     print("Inizializzazione ambiente e Lookup Table...")
     all_perms = generate_all_permutations()
     lookup = FeedbackLookup(all_perms)
     lookup.get_feedback(all_perms[0], all_perms[0])
 
-    # Istanziazione delle strategie in gara
-    max_entropy = EntropyStrategy(all_perms, lookup)
-    greedy_minmax = GreedyMinimaxStrategy(all_perms, lookup)
-    
-    estimated_evm_piecewise = EstimatedEVMStrategy(
-        all_perms, lookup, PiecewiseBucketEstimator(), max_entropy, fallback_threshold=0
-    )
-    
-    estimated_evm_geometric = EstimatedEVMStrategy(
-        all_perms, lookup, GeometricBucketEstimator(), max_entropy, fallback_threshold=0
-    )
-    
-    hybrid_evm_minmax = HybridWeightedStrategy(
-        estimated_evm_piecewise, greedy_minmax, ishigher_better_a=False, ishigher_better_b=False, weight_a=0.944, weight_b=0.056
-    )
-    
-    hybrid_entropy_minmax = HybridWeightedStrategy(
-        max_entropy, greedy_minmax, ishigher_better_a=True, ishigher_better_b=False, weight_a=0.94, weight_b=0.06
-    )
+    base = build_base_strategies(all_perms, lookup, MODELS_DIR)
+    unknown = [c for c in args.competitors if c not in base]
+    if unknown:
+        raise SystemExit(f"Competitor sconosciuti: {unknown}. Disponibili: {sorted(base)}")
+    competitors = {name: base[name] for name in args.competitors}
+    print(f"Competitor: {list(competitors)}\n")
 
-    competitors = {
-        "max_entropy": max_entropy,
-        "estimated_evm_piecewise": estimated_evm_piecewise,
-        "estimated_evm_geometric": estimated_evm_geometric,
-        "hybrid_emv_minmax_9405": hybrid_evm_minmax,
-        "hybrid_maxentropy_minmax_9406": hybrid_entropy_minmax
+    with tqdm(desc="Stati risolti", unit=" stati") as pbar:
+        solver = RouterSolver(competitors, lookup, on_new_state=pbar.update)
+        plan_avg, plan_def = solver.solve(all_perms)
+
+    n = len(all_perms)
+    print(f"\nAttacco : media {plan_avg.total / n:.5f} | caso peggiore {plan_avg.depth}")
+    print(f"Difesa  : media {plan_def.total / n:.5f} | caso peggiore {plan_def.depth}")
+
+    output = {
+        "meta": {
+            "created": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "competitors": list(competitors),
+            "states_solved": solver.n_states,
+            "attack": {"avg": plan_avg.total / n, "worst": plan_avg.depth},
+            "defense": {"avg": plan_def.total / n, "worst": plan_def.depth},
+        },
+        "best_average": extract_policy(solver, all_perms, "avg"),
+        "pareto_defensive": extract_policy(solver, all_perms, "def"),
     }
+    from pathlib import Path
 
-    print(f"Torneo avviato con {len(competitors)} strategie in competizione...\n")
-    
-    policy_avg: Dict[str, str] = {}
-    policy_def: Dict[str, str] = {}
-    
-    # AVVIO DEL TORNEO DALLA RADICE
-    simulate_tournament(all_perms, [], competitors, policy_avg, policy_def, "max_entropy")
-    
-    pbar.close()
-
-    # SALVATAGGIO
-    output_data = {
-        "best_average": policy_avg,
-        "pareto_defensive": policy_def
-    }
-    
-    ROUTING_POLICY_FILEPATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(ROUTING_POLICY_FILEPATH, "w", encoding="utf-8") as f:
-        json.dump(output_data, f, indent=4)
-        
-    print(f"\nTorneo concluso! Policy salvata in {ROUTING_POLICY_FILEPATH}.")
-    print(f"- Nodi Mappati (Attacco) : {len(policy_avg)}")
-    print(f"- Nodi Mappati (Difesa)  : {len(policy_def)}")
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with open(out, "w", encoding="utf-8") as file:
+        json.dump(output, file, indent=1)
+    print(f"Policy salvata in {out}")
+    print(f"- stati in policy (attacco): {len(output['best_average'])}")
+    print(f"- stati in policy (difesa) : {len(output['pareto_defensive'])}")
 
 
 if __name__ == "__main__":
