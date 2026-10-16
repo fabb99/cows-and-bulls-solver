@@ -1,67 +1,138 @@
 """
-Modulo: train_model 
+Modulo: train_model (Script)
+Fase 4: addestra uno SegmentedLinearEstimator e lo salva come JSON auto-descrittivo.
+Un solo script per tutti i modelli:
+- geometrico (globale):  --splits               (nessuna soglia, un segmento)
+- piecewise (default):   --splits 13 43
+- asimmetrico:           --alpha 0.8            (expectile: sottostime pesate di più)
+
+Per ogni segmento stampa le metriche IN-SAMPLE e di CROSS-VALIDATION e le salva nel
+campo "meta" del modello, insieme all'hash del dataset di origine.
+
+Esempi:
+  python -m experiments.oracle_lab.train_model --splits --out data/runs/iter_00/models/geometric.json
+  python -m experiments.oracle_lab.train_model --features log_n column_entropy digit_std --alpha 0.5
 """
-from typing import List, Dict, Any, Tuple
+import argparse
+import hashlib
+from datetime import datetime, timezone
 from pathlib import Path
-import json
+from typing import Optional, Sequence
+
 import numpy as np
 
+from experiments.oracle_lab.config import DEFAULT_SPLITS, FEATURES_DATASET_FILEPATH, MODELS_DIR
 from experiments.oracle_lab.models import FeatureRecord
+from experiments.oracle_lab.regression import (
+    compute_regression_metrics,
+    cross_validate,
+    fit_linear,
+    predict,
+)
+from experiments.oracle_lab.storage import load_features
+from src.estimators.segmented import SegmentedLinearEstimator
+from src.features.bucket_features import FEATURES
 
-def load_dataset(filepath: Path) -> List[FeatureRecord]:
-    """
-    Carica i dati arricchiti dal file JSON e ricostruisce gli oggetti FeatureRecord.
-    
-    PRE: filepath punta a un file data/features_dataset.json esistente e valido.
-    POST: Ritorna una lista di istanze FeatureRecord usando from_dict.
-    """
-    with open(filepath, "r", encoding="utf-8") as file:
-        dataset = json.load(file)     
-    return [FeatureRecord.from_dict(record) for record in dataset]
+DEFAULT_FEATURES = ["log_n", "column_entropy", "digit_std"]
 
-def compute_regression_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Tuple[float, float, float]:
-    """
-    Calcola le metriche oggettive di errore e di spiegazione della varianza.
-    
-    PRE: y_true e y_pred sono array NumPy 1D della stessa dimensione.
-    POST: Ritorna la tripla (MAE, RMSE, R2):
-          - MAE: Errore medio assoluto in turni (np.mean(np.abs(y_true - y_pred)))
-          - RMSE: Radice dell'errore quadratico medio (np.sqrt(np.mean((y_true - y_pred)**2)))
-          - R2: Coefficiente di determinazione (1.0 - (SS_res / SS_tot))
-    """
-    # 1. Calcola MAE (L1 loss)
-    mae = np.mean(np.abs(y_true - y_pred))
-    # 2. Calcola RMSE (L2 loss)
-    rmse = np.sqrt(np.mean((y_true-y_pred)**2))
-    # 3. Calcola la somma dei quadrati degli errori residui: SS_res = np.sum((y_true - y_pred) ** 2)
-    ss_res = np.sum((y_true - y_pred)**2)
-    # 4. Calcola la somma dei quadrati della varianza totale rispetto alla media: SS_tot = np.sum((y_true - np.mean(y_true)) ** 2)
-    ss_tot = np.sum((y_true - np.mean(y_true))**2)
-    # 5. Calcola R2 = 1.0 - (SS_res / SS_tot)
-    r2 = 1.0 - (ss_res/ss_tot)
-    # 6. Ritorna (mae, rmse, r2)
-    return mae, rmse, r2
 
-def train_linear_model(
-    X_features: np.ndarray, 
-    y_targets: np.ndarray
-) -> Tuple[np.ndarray, Tuple[float, float, float]]:
+def train_segmented_model(
+    records: list[FeatureRecord],
+    features: Sequence[str],
+    splits: Sequence[int],
+    alpha: float = 0.5,
+    k_folds: int = 5,
+    seed: int = 0,
+    dataset_sha256: Optional[str] = None,
+) -> SegmentedLinearEstimator:
     """
-    Risolve il sistema OLS con intercetta automatica K0 tramite NumPy SVD.
-    
-    PRE: 
-        - X_features è una matrice NumPy (N_samples, N_features).
-        - y_targets è un vettore 1D con i costi reali M.
-    POST: Ritorna (coefficienti, (mae, rmse, r2)).
+    PRE:  records con le feature richieste; splits crescenti.
+          Ogni segmento (N <= s0, s0 < N <= s1, ..., N > s_last) ha almeno len(features) + 2 campioni.
+    POST: estimator addestrato; meta contiene, per segmento, numero di campioni, di stati
+          esatti, metriche in-sample e di cross-validation.
     """
-    # 1. Crea la colonna di 1 con np.ones_like(y_targets)
-    # 2. Incolla con np.column_stack([colonna_uno, X_features])
-    x = np.column_stack([np.ones_like(y_targets), X_features])
-    # 3. Risolvi con np.linalg.lstsq(..., rcond=None)[0]
-    coeffs = np.linalg.lstsq(x, y_targets, rcond=None)[0]
-    # 4. Calcola le predizioni con l'operatore matriciale @
-    y_pred = x @ coeffs
-    # 5. Calcola le metriche con compute_regression_metrics(y_targets, y_pred)
-    metrics = compute_regression_metrics(y_targets, y_pred)
-    # 6. Ritorna (coeffs, metrics)
-    return (coeffs, metrics)
+    splits = sorted(int(s) for s in splits)
+    unknown = [f for f in features if f not in FEATURES]
+    if unknown:
+        raise ValueError(f"Feature sconosciute: {unknown}")
+
+    groups: list[list[FeatureRecord]] = [[] for _ in range(len(splits) + 1)]
+    for r in records:
+        groups[sum(s < r.n for s in splits)].append(r)  # stessa regola di SegmentedLinearEstimator
+
+    segments, report = [], []
+    for k, group in enumerate(groups):
+        if len(group) < len(features) + 2:
+            raise ValueError(f"Segmento {k}: solo {len(group)} campioni, troppo pochi")
+        X = np.array([[r.features[f] for f in features] for r in group])
+        y = np.array([r.target_cost for r in group])
+        coeffs = fit_linear(X, y, alpha)
+        segments.append({"intercept": float(coeffs[0]), "coef": [float(c) for c in coeffs[1:]]})
+        report.append(
+            {
+                "n_samples": len(group),
+                "n_exact": sum(r.is_exact for r in group),
+                "in_sample": compute_regression_metrics(y, predict(X, coeffs)).to_dict(),
+                "cv": cross_validate(X, y, alpha, k_folds, seed).to_dict(),
+            }
+        )
+
+    return SegmentedLinearEstimator(
+        features=features,
+        splits=splits,
+        segments=segments,
+        alpha=alpha,
+        meta={
+            "created": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "dataset_sha256": dataset_sha256,
+            "k_folds": k_folds,
+            "seed": seed,
+            "segments": report,
+        },
+    )
+
+
+def print_report(model: SegmentedLinearEstimator) -> None:
+    """POST: stampa la tabella delle metriche per segmento e la formula."""
+    print(f"\nFeature: {model.features} | soglie: {model.splits} | alpha = {model.alpha}")
+    print("=" * 84)
+    print(f"{'Segmento':<9} | {'Campioni':>8} | {'Esatti':>6} | {'MAE in':>7} | {'MAE cv':>7} | {'R² in':>7} | {'R² cv':>7}")
+    print("-" * 84)
+    for k, seg in enumerate(model.meta["segments"]):
+        i, c = seg["in_sample"], seg["cv"]
+        print(f"{k:<9} | {seg['n_samples']:>8} | {seg['n_exact']:>6} | {i['mae']:>7.3f} | {c['mae']:>7.3f} | {i['r2']:>7.3f} | {c['r2']:>7.3f}")
+    print("=" * 84)
+    for k, (intercept, coef) in enumerate(model._segments):
+        terms = " ".join(f"{c:+.4f}*{f}" for c, f in zip(coef, model.features))
+        print(f"Segmento {k}: costo = {intercept:.4f} {terms}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Addestra uno SegmentedLinearEstimator.")
+    parser.add_argument("--features", nargs="+", default=DEFAULT_FEATURES, choices=sorted(FEATURES))
+    parser.add_argument("--splits", nargs="*", type=int, default=None,
+                        help="soglie degli scaglioni; senza valori = modello globale")
+    parser.add_argument("--alpha", type=float, default=0.5)
+    parser.add_argument("--folds", type=int, default=5)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--dataset", type=Path, default=FEATURES_DATASET_FILEPATH)
+    parser.add_argument("--out", type=Path, default=MODELS_DIR / "model.json")
+    args = parser.parse_args()
+
+    records = load_features(args.dataset)
+    if not records:
+        print(f"{args.dataset} assente o vuoto: esegui prima feature_builder.")
+        return
+    splits = DEFAULT_SPLITS if args.splits is None else args.splits
+    digest = hashlib.sha256(args.dataset.read_bytes()).hexdigest()
+
+    model = train_segmented_model(
+        records, args.features, splits, args.alpha, args.folds, args.seed, digest
+    )
+    print_report(model)
+    model.save(args.out)
+    print(f"\nModello salvato in {args.out}")
+
+
+if __name__ == "__main__":
+    main()

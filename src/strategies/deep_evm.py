@@ -94,3 +94,7 @@ class PureDeepEVMStrategy(BaseStrategy):
             )
             for c in candidates_to_test
         }
+
+    def exact_cost(self, solutions: list[str]) -> float:
+        """PRE: solutions non vuota. POST: costo atteso minimo esatto (con memoization)."""
+        return self._compute_exact_cost(solutions)
