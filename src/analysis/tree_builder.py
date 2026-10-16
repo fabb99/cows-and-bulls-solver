@@ -1,60 +1,50 @@
 """
 Modulo: tree_builder
-Contiene la logica per generare l'albero decisionale completo di una specifica strategia
-giocata contro tutte le configurazioni possibili.
+Costruzione dell'albero decisionale completo di una strategia contro tutti i segreti possibili.
 """
-from typing import List, Dict, Any, Callable,Optional
-from src.strategies.base import BaseStrategy
-from src.core.engine import calculate_buckets
-from src.core.constants import DIM
+from typing import Any, Callable, Optional
 
-# Un tipo custom (Type Alias) per semplificare la firma dei dizionari.
-# Un Nodo sarà: {"guess": "0123", "solutions_count": 5040, "children": {"++": NodoFiglio, ...}}
-TreeNode = Dict[str, Any]
+from src.core.constants import WIN_FEEDBACK
+from src.core.engine import calculate_buckets
+from src.core.feedback import Feedback
+from src.strategies.base import BaseStrategy
+
+# Nodo: {"guess": str, "possible_solutions": list[str], "children": {Feedback: Nodo | None}}
+# Un figlio None è una foglia: il feedback di vittoria (partita conclusa).
+TreeNode = dict[str, Any]
+
 
 def build_decision_tree(
-    strategy: BaseStrategy, 
-    possible_solutions: List[str], 
-    history: List[str] = None,
-    on_victory_callback: Optional[Callable[[int], None]] = None
+    strategy: BaseStrategy,
+    possible_solutions: list[str],
+    history: Optional[list[str]] = None,
+    on_victory_callback: Optional[Callable[[int], None]] = None,
 ) -> TreeNode:
     """
-    Costruisce ricorsivamente l'albero di tutte le partite possibili per la data strategia.
-    
-    PRE: strategy è un'istanza valida. possible_solutions è la lista di soluzioni iniziali (es. 5040).
-    POST: Restituisce un dizionario annidato che rappresenta i percorsi dell'algoritmo.
-          Ogni foglia si ferma quando la valutazione è "++++".
+    PRE:  strategy è inizializzata; possible_solutions è non vuota.
+          history è lo storico delle mosse già giocate (vuoto alla radice).
+    POST: albero di tutte le partite possibili. Con 1 o 2 soluzioni la mossa è la prima
+          soluzione (con 2 è già ottimo); altrimenti la sceglie la strategia.
+          Ogni foglia (None) corrisponde a una vittoria; `on_victory_callback(1)`
+          è chiamata una volta per foglia.
     """
-    if history is None:
-        history = []
+    if not possible_solutions:
+        raise ValueError("possible_solutions è vuota")
+    history = history or []
 
-    num_solutions = len(possible_solutions) 
-
-    if num_solutions == 1:
-        guess = possible_solutions[0]
-    elif num_solutions == 2:
+    if len(possible_solutions) <= 2:
         guess = possible_solutions[0]
     else:
         guess = strategy.choose_guess(possible_solutions, history)
 
-    bucket = calculate_buckets(guess, possible_solutions, strategy.lookup)
-
-    decision_tree = {}
-    decision_tree["guess"] = guess
-    decision_tree["possible_solutions"] = possible_solutions
-    decision_tree["children"] = {}
     next_history = history + [guess]
-
-    
-    for feedback , next_possible_solutions in bucket.items():
-        if not next_possible_solutions:
-            continue
-        if feedback == (DIM,0):
-            decision_tree["children"][feedback] = None 
+    children: dict[Feedback, Optional[TreeNode]] = {}
+    for fb, bucket in calculate_buckets(guess, possible_solutions, strategy.lookup).items():
+        if fb == WIN_FEEDBACK:
+            children[fb] = None
             if on_victory_callback is not None:
-                on_victory_callback(1) 
-        else: 
-            decision_tree["children"][feedback] = build_decision_tree(strategy, next_possible_solutions, next_history, on_victory_callback)
+                on_victory_callback(1)
+        else:
+            children[fb] = build_decision_tree(strategy, bucket, next_history, on_victory_callback)
 
-    
-    return decision_tree
+    return {"guess": guess, "possible_solutions": possible_solutions, "children": children}
