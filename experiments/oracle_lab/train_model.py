@@ -64,6 +64,8 @@ def train_segmented_model(
     for r in records:
         groups[sum(s < r.n for s in splits)].append(r)  # stessa regola di SegmentedLinearEstimator
 
+    #"created": datetime.now(UTC).isoformat(timespec="seconds"),
+
     segments, report = [], []
     for k, group in enumerate(groups):
         if len(group) < len(features) + 2:
@@ -71,9 +73,16 @@ def train_segmented_model(
         X = np.array([[r.features[f] for f in features] for r in group])
         y = np.array([r.target_cost for r in group])
         coeffs = fit_linear(X, y, alpha)
-        segments.append({"intercept": float(coeffs[0]), "coef": [float(c) for c in coeffs[1:]]})
+        segments.append(
+            {
+                "features": list(features),
+                "intercept": float(coeffs[0]),
+                "coef": [float(c) for c in coeffs[1:]],
+            }
+        )
         report.append(
             {
+                "features": list(features),
                 "n_samples": len(group),
                 "n_exact": sum(r.is_exact for r in group),
                 "in_sample": compute_regression_metrics(y, predict(X, coeffs)).to_dict(),
@@ -82,7 +91,6 @@ def train_segmented_model(
         )
 
     return SegmentedLinearEstimator(
-        features=features,
         splits=splits,
         segments=segments,
         alpha=alpha,
@@ -97,19 +105,18 @@ def train_segmented_model(
 
 
 def print_report(model: SegmentedLinearEstimator) -> None:
-    """POST: stampa la tabella delle metriche per segmento e la formula."""
-    print(f"\nFeature: {model.features} | soglie: {model.splits} | alpha = {model.alpha}")
+    """POST: stampa la tabella delle metriche per segmento e la formula di ciascuno."""
+    print(f"\nSoglie: {model.splits} | alpha = {model.alpha}")
     print("=" * 84)
     print(f"{'Segmento':<9} | {'Campioni':>8} | {'Esatti':>6} | {'MAE in':>7} | {'MAE cv':>7} | {'R² in':>7} | {'R² cv':>7}")
     print("-" * 84)
-    for k, seg in enumerate(model.meta["segments"]):
-        i, c = seg["in_sample"], seg["cv"]
-        print(f"{k:<9} | {seg['n_samples']:>8} | {seg['n_exact']:>6} | {i['mae']:>7.3f} | {c['mae']:>7.3f} | {i['r2']:>7.3f} | {c['r2']:>7.3f}")
+    for k, rep in enumerate(model.meta["segments"]):
+        i, c = rep["in_sample"], rep["cv"]
+        print(f"{k:<9} | {rep['n_samples']:>8} | {rep['n_exact']:>6} | {i['mae']:>7.3f} | {c['mae']:>7.3f} | {i['r2']:>7.3f} | {c['r2']:>7.3f}")
     print("=" * 84)
-    for k, (intercept, coef) in enumerate(model._segments):
-        terms = " ".join(f"{c:+.4f}*{f}" for c, f in zip(coef, model.features))
-        print(f"Segmento {k}: costo = {intercept:.4f} {terms}")
-
+    for k, seg in enumerate(model.segments):
+        terms = " ".join(f"{c:+.4f}*{f}" for c, f in zip(seg.coef, seg.features, strict=True))
+        print(f"Segmento {k}: costo = {seg.intercept:.4f} {terms}")
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Addestra uno SegmentedLinearEstimator.")

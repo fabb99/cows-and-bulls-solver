@@ -86,9 +86,10 @@ def test_train_segmented_model_end_to_end(tmp_path):
     model = train_segmented_model(
         _synthetic_records(), ["log_n", "column_entropy"], [13, 43], dataset_sha256="x"
     )
-    assert len(model.splits) == 2 and len(model._segments) == 3
-    for _, coef in model._segments:
-        assert coef == pytest.approx((0.3, -0.1), abs=1e-6)
+    assert len(model.splits) == 2 and len(model.segments) == 3
+    for seg in model.segments:
+        assert seg.features == ("log_n", "column_entropy")
+        assert seg.coef == pytest.approx((0.3, -0.1), abs=1e-6)
     assert model.meta["segments"][0]["cv"]["r2"] > 0.999
     path = tmp_path / "m.json"
     model.save(path)
