@@ -33,15 +33,19 @@ def compute_sum_squared_errors(y: np.ndarray) -> float:
 
 
 def find_best_single_split(
-    n_values: np.ndarray, costs: np.ndarray, min_leaf_samples: int = 50
+    n_values: np.ndarray,
+    costs: np.ndarray,
+    min_leaf_samples: int = 50,
+    ss_ref: float | None = None,
 ) -> tuple[int | None, float, float]:
     """
     PRE:  n_values e costs hanno la stessa lunghezza.
-    POST: (T*, riduzione relativa di SSE, SSE minima dopo il taglio).
+          ss_ref: SSE di riferimento per normalizzare (default: SSE dei costs passati).
+    POST: (T*, riduzione di SSE / ss_ref, SSE minima dopo il taglio).
           T* è None se nessuna soglia lascia almeno min_leaf_samples campioni per lato.
-          Riduzione = 1 - SSE_dopo / SSE_prima.
     """
     ss_tot = compute_sum_squared_errors(costs)
+    ss_ref = ss_tot if ss_ref is None else ss_ref
     best_threshold: int | None = None
     min_total_error = np.inf
 
@@ -55,31 +59,32 @@ def find_best_single_split(
             min_total_error = total_error
             best_threshold = t
 
-    gain = 1.0 - (min_total_error / ss_tot) if ss_tot > 0 else 0.0
+    gain = (ss_tot - min_total_error) / ss_ref if ss_ref > 0 else 0.0
     return best_threshold, gain, float(min_total_error)
 
-
 def find_hierarchical_splits(
-    n_values: np.ndarray, costs: np.ndarray, max_splits: int = 2
+    n_values: np.ndarray,
+    costs: np.ndarray,
+    max_splits: int = 2,
+    ss_ref: float | None = None,
 ) -> list[tuple[int, float]]:
     """
-    PRE:  max_splits >= 0.
-    POST: lista ordinata di (soglia, riduzione di SSE). Dal secondo taglio in poi la
-          riduzione è calcolata sul solo sotto-insieme a destra del taglio precedente.
+    POST: lista ordinata di (soglia, riduzione di SSE rispetto all'SSE TOTALE del dataset).
     """
     if max_splits <= 0 or len(n_values) < 100:
         return []
+    ss_ref = compute_sum_squared_errors(costs) if ss_ref is None else ss_ref
 
-    t, gain, _ = find_best_single_split(n_values, costs)
+    t, gain, _ = find_best_single_split(n_values, costs, ss_ref=ss_ref)
     if t is None:
         return []
     if max_splits == 1:
         return [(t, gain)]
 
     right = n_values > t
-    sub_splits = find_hierarchical_splits(n_values[right], costs[right], max_splits - 1)
+    sub_splits = find_hierarchical_splits(n_values[right], costs[right], max_splits - 1, ss_ref)
+    sub_splits = [(t2, g2) for t2, g2 in sub_splits if g2 > 1e-9]
     return sorted([(t, gain)] + sub_splits, key=lambda x: x[0])
-
 
 def main() -> None:
     dataset = load_features(FEATURES_DATASET_FILEPATH)

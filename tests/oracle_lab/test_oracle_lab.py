@@ -109,3 +109,13 @@ def test_find_best_single_split_finds_step():
     costs = np.where(n <= 80, 2.0, 5.0)
     threshold, gain, error = find_best_single_split(n, costs, min_leaf_samples=10)
     assert threshold == 80 and gain == pytest.approx(1.0) and error == pytest.approx(0.0)
+
+def test_hierarchical_gains_are_relative_to_total_sse():
+    from experiments.oracle_lab.find_optimal_splits import find_hierarchical_splits
+
+    n = np.arange(1, 301)
+    costs = np.where(n <= 100, 1.0, np.where(n <= 200, 3.0, 4.0))
+    splits = find_hierarchical_splits(n, costs, max_splits=2)
+    assert [t for t, _ in splits] == [100, 200]
+    assert sum(g for _, g in splits) == pytest.approx(1.0)
+    assert all(0 < g < 1 for _, g in splits)

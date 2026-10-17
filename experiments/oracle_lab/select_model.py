@@ -25,7 +25,7 @@ import time
 from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -402,7 +402,7 @@ def main() -> None:
     model = build_estimator(
         ds, chosen, args.alpha,
         meta={
-            "created": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "created": datetime.now(UTC).isoformat(timespec="seconds"),
             "dataset_sha256": digest,
             "selection": {
                 "max_phases": args.max_phases, "min_samples": args.min_samples,
