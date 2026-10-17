@@ -56,6 +56,8 @@ def analyze_segment(title: str, records: list[FeatureRecord]) -> None:
     print("\n" + "=" * 70)
     print(f" {title}: {len(records)} stati ({n_exact} con costo esatto)")
     print("=" * 70)
+    distinct = count_distinct_vectors(records)
+    print(f" Vettori (N, feature) distinti: {distinct} / {len(records)} ({100 * distinct / len(records):.1f}%)")
     matrix = build_data_matrix(records)
     print_statistical_summary(matrix)
     print_correlation_matrix(matrix)
@@ -69,6 +71,10 @@ def segment_records(records: list[FeatureRecord], splits: list[int]) -> list[tup
         for lo, hi in zip(bounds, bounds[1:])
     ]
 
+def count_distinct_vectors(records: list[FeatureRecord]) -> int:
+    """POST: numero di vettori (N, feature arrotondate a 6 decimali) distinti.
+    Un rapporto distinti/stati basso indica molte copie isomorfe (stesso problema, cifre rinominate)."""
+    return len({(r.n, *(round(r.features[f], 6) for f in FEATURES)) for r in records})
 
 def main() -> None:
     records = load_features(FEATURES_DATASET_FILEPATH)

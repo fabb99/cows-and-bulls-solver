@@ -6,6 +6,7 @@ Uso: python -m scripts.generate_trees --strategies max_entropy greedy_minimax [-
 """
 import argparse
 import time
+from pathlib import Path
 
 from tqdm import tqdm
 
@@ -26,6 +27,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Genera gli alberi decisionali.")
     parser.add_argument("--strategies", nargs="+", required=True)
     parser.add_argument("--force", action="store_true", help="rigenera anche se esiste già")
+    parser.add_argument("--models-dir", type=Path, default=MODELS_DIR)
+    parser.add_argument("--strict-models", action="store_true",
+                        help="nessun fallback legacy: i modelli assenti rendono la strategia non disponibile")
     args = parser.parse_args()
 
     start = time.time()
@@ -34,7 +38,9 @@ def main() -> None:
     lookup.get_feedback(all_perms[0], all_perms[0])
     print(f"Sistema pronto ({time.time() - start:.1f} s)\n")
 
-    available = build_base_strategies(all_perms, lookup, MODELS_DIR)
+    available = build_base_strategies(
+        all_perms, lookup, args.models_dir, strict=args.strict_models, memoize=True
+    )
     available.update(build_routed_strategies(all_perms, lookup, available, ROUTING_POLICY_FILEPATH))
     unknown = [n for n in args.strategies if n not in available]
     if unknown:

@@ -13,7 +13,12 @@ from pathlib import Path
 
 from tqdm import tqdm
 
-from experiments.oracle_lab.config import COST_TOL, EXACT_SOURCE, RAW_STATES_FILEPATH
+from experiments.oracle_lab.config import (
+    COST_TOL,
+    EXACT_SOURCE,
+    MODELS_DIR,
+    RAW_STATES_FILEPATH,
+)
 from experiments.oracle_lab.models import RawState
 from experiments.oracle_lab.storage import load_raw_states, save_raw_states
 from src.analysis.metrics import average_depth
@@ -22,8 +27,7 @@ from src.core.generator import generate_all_permutations
 from src.core.lookup_table import FeedbackLookup
 from src.strategies.base import BaseStrategy
 from src.strategies.deep_evm import PureDeepEVMStrategy
-from src.strategies.entropy import EntropyStrategy
-from src.strategies.greedy_minimax import GreedyMinimaxStrategy
+from src.strategies.zoo import build_base_strategies
 
 SAVE_INTERVAL: int = 25
 
@@ -100,11 +104,14 @@ def refine_states(
     save_raw_states(raw_states, save_path)
     return stats
 
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Raffina i costi degli stati.")
     parser.add_argument("--max-exact-n", type=int, default=10)
     parser.add_argument("--max-tournament-n", type=int, default=1500)
+    parser.add_argument("--competitors", nargs="+", default=["max_entropy", "greedy_minimax"],
+                        help="nomi dello zoo (src/strategies/zoo.py) che partecipano al torneo")
+    parser.add_argument("--models-dir", type=Path, default=MODELS_DIR)
+    parser.add_argument("--strict-models", action="store_true")
     args = parser.parse_args()
 
     raw_states = load_raw_states(RAW_STATES_FILEPATH)
@@ -115,14 +122,17 @@ def main() -> None:
     all_perms = generate_all_permutations()
     lookup = FeedbackLookup(all_perms)
     lookup.get_feedback(all_perms[0], all_perms[0])  # costruzione anticipata
-    entropy = EntropyStrategy(all_perms, lookup)
+
+    base = build_base_strategies(
+        all_perms, lookup, args.models_dir, strict=args.strict_models, memoize=True
+    )
+    unknown = [c for c in args.competitors if c not in base]
+    if unknown:
+        raise SystemExit(f"Competitor non disponibili: {unknown}. Disponibili: {sorted(base)}")
+    competitors: dict[str, BaseStrategy] = {name: base[name] for name in args.competitors}
 
     tablebase = {sid: s.best_cost for sid, s in raw_states.items() if s.is_exact}
-    exact_strategy = PureDeepEVMStrategy(all_perms, lookup, entropy, tablebase)
-    competitors: dict[str, BaseStrategy] = {
-        "entropy": entropy,
-        "minimax": GreedyMinimaxStrategy(all_perms, lookup),
-    }
+    exact_strategy = PureDeepEVMStrategy(all_perms, lookup, base["max_entropy"], tablebase)
 
     stats = refine_states(
         raw_states, exact_strategy, competitors, args.max_exact_n, args.max_tournament_n
@@ -130,7 +140,6 @@ def main() -> None:
     n_exact = sum(s.is_exact for s in raw_states.values())
     print(f"Nuovi stati esatti: {stats.newly_exact} | costi migliorati: {stats.improved}")
     print(f"Stati esatti totali: {n_exact} / {len(raw_states)}")
-
 
 if __name__ == "__main__":
     main()
