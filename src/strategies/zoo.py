@@ -6,6 +6,7 @@ dataset_refiner, train_router, tune_hybrid_weights, investigate_branch e main.
 Modalità `strict` (usata dalla pipeline): una strategia che dipende da un modello
 viene costruita SOLO se il file del modello esiste; nessun fallback sui coefficienti legacy.
 """
+import json
 import sys
 from pathlib import Path
 
@@ -27,6 +28,7 @@ MODEL_FILES = {
 }
 ENTROPY_MINIMAX_WEIGHTS = (0.94, 0.06)
 EVM_MINIMAX_WEIGHTS = (0.944, 0.056)
+GEOMETRIC_MINIMAX_WEIGHTS = (0.962, 0.038)
 ROUTED_NAMES = {
     "frankenstein_a_strategy": "best_average",
     "frankenstein_d_strategy": "pareto_defensive",
@@ -96,6 +98,18 @@ def build_base_strategies(
         if kind == "piecewise":
             strategies["hybrid_evm_minimax"] = HybridWeightedStrategy(
                 evm, minimax, *EVM_MINIMAX_WEIGHTS
+            )
+        if kind == "geometric":
+            strategies["hybrid_geometric_minimax"] = HybridWeightedStrategy(
+                evm, minimax, *GEOMETRIC_MINIMAX_WEIGHTS
+            )
+    hybrid_spec = models_dir / "hybrid_best.json"
+    if hybrid_spec.exists():
+        spec = json.loads(hybrid_spec.read_text(encoding="utf-8"))
+        base_evm = strategies.get(f"estimated_evm_{spec.get('base_model')}")
+        if not spec.get("skipped") and base_evm is not None:
+            strategies["hybrid_best_minimax"] = HybridWeightedStrategy(
+                base_evm, minimax, spec["weight_a"], spec["weight_b"]
             )
     if memoize:
         strategies = {name: MemoizedStrategy(s) for name, s in strategies.items()}

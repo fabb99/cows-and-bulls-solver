@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from src.analysis.best_model import pick_best_model, tree_stats
 from src.analysis.metrics import calculate_total_moves_and_leaves, max_depth
 from src.analysis.tree_io import load_tree_from_json
 from src.paths import DATA_DIR, LEGACY_DIR
@@ -33,7 +34,7 @@ ROOT = Path(__file__).resolve().parent.parent
 RUNS_DIR = DATA_DIR / "runs"
 MAX_ITERATIONS = 3
 MIN_IMPROVEMENT = 1e-4  # con 5040 partite equivale a >= 1 mossa totale in meno
-SELECTED_TREE = "estimated_evm_selected.json"
+
 LEGACY_TREE = "estimated_evm_legacy.json"
 
 
@@ -138,18 +139,31 @@ def run_stage(stage: Stage, directory: Path) -> list[str] | None:
     cmd = [sys.executable, *stage.args]
     log_dir = directory / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    env = {**os.environ, "COWS_RUN_DIR": str(directory)}
+    env = {**os.environ, "COWS_RUN_DIR": str(directory), "PYTHONUNBUFFERED": "1"}
     with open(log_dir / f"{stage.name}.log", "w", encoding="utf-8") as log:
         proc = subprocess.Popen(
-            cmd, env=env, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+            cmd, env=env, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
         )
         assert proc.stdout is not None
-        for line in proc.stdout:
-            sys.stdout.write(line)
-            log.write(line)
+        pending = ""  # riga corrente per il log (l'ultimo \r vince)
+        while True:
+            chunk = proc.stdout.read(1)
+            if not chunk:
+                break
+            char = chunk.decode("utf-8", errors="replace")
+            sys.stdout.write(char)
+            sys.stdout.flush()
+            if char == "\n":
+                log.write(pending + "\n")
+                pending = ""
+            elif char == "\r":
+                pending = ""  # un aggiornamento di barra sostituisce il precedente
+            else:
+                pending += char
+        if pending:
+            log.write(pending + "\n")
         if proc.wait() != 0:
             raise RuntimeError(f"Stadio '{stage.name}' fallito (codice {proc.returncode})")
-    return cmd
 
 
 def execute(
@@ -174,6 +188,12 @@ def execute(
         if name is not None and name not in names:
             raise SystemExit(f"{label}: stadio sconosciuto '{name}'. Stadi: {names}")
 
+    if force and only is None and from_stage is None:
+        raise SystemExit("--force richiede --only STADIO oppure --from STADIO")
+    forced = set(names[names.index(from_stage):]) if from_stage else set()
+    if only is not None:
+        forced = {only}
+    
     directory.mkdir(parents=True, exist_ok=True)
     manifest = load_manifest(directory)
     if from_stage is not None:
@@ -185,7 +205,7 @@ def execute(
     for stage in stages:
         if only is not None and stage.name != only:
             continue
-        done = is_done(stage, manifest) and not force
+        done = is_done(stage, manifest) and not (force and stage.name in forced)
         if dry_run:
             print(f"[{'salta' if done else 'esegui'}] {stage.name}  {' '.join(stage.args)}")
             continue
@@ -221,12 +241,12 @@ def execute(
 
 
 # ---------------------------------------------------------------- azioni
-def init_iteration(k: int) -> None:
+def init_iteration(k: int, prev_best: str = "selected", prev_hybrid: bool = False) -> None:
     """
-    POST: crea la cartella dell'iterazione k e vi copia il seed.
-          k=0: raw_states legacy (costi upper bound validi). k>0: raw_states di k-1 e,
-          come sorgente di stati, l'albero EVM di k-1 (prev_estimated_evm_selected.json).
-          Se il seed non esiste crea un raw_states vuoto.
+    POST: crea la cartella dell'iterazione k. k=0: seed = raw_states legacy. k>0: raw_states
+          di k-1 e, come sorgenti di stati, gli alberi migliori di k-1
+          (prev_estimated_evm_<best>.json e, se prev_hybrid, prev_hybrid_best_minimax.json).
+          NON sovrascrive mai un raw_states.json già presente e non vuoto.
     """
     root = run_dir(k)
     for sub in ("trees", "models", "logs"):
@@ -236,21 +256,18 @@ def init_iteration(k: int) -> None:
     else:
         prev = run_dir(k - 1)
         seed = prev / "raw_states.json"
-        prev_tree = prev / "trees" / SELECTED_TREE
-        if prev_tree.exists():
-            shutil.copyfile(prev_tree, root / "trees" / f"prev_{SELECTED_TREE}")
+        names = [f"estimated_evm_{prev_best}"] + (["hybrid_best_minimax"] if prev_hybrid else [])
+        for name in names:
+            src = prev / "trees" / f"{name}.json"
+            if src.exists():
+                shutil.copyfile(src, root / "trees" / f"prev_{name}.json")
     target = root / "raw_states.json"
+    if target.exists() and target.stat().st_size > 2:
+        return
     if seed.exists():
         shutil.copyfile(seed, target)
     else:
         target.write_text("{}", encoding="utf-8")
-
-
-def tree_stats(path: Path) -> dict:
-    """PRE: path è un albero JSON. POST: {'total_moves', 'games', 'avg', 'worst'}."""
-    tree = load_tree_from_json(str(path))
-    moves, games = calculate_total_moves_and_leaves(tree)
-    return {"total_moves": moves, "games": games, "avg": moves / games, "worst": max_depth(tree)}
 
 
 def decide(ref_moves: int, moves: int, games: int, k: int) -> tuple[bool, str]:
@@ -265,60 +282,63 @@ def decide(ref_moves: int, moves: int, games: int, k: int) -> tuple[bool, str]:
         return False, f"raggiunto il massimo di {MAX_ITERATIONS} iterazioni"
     return True, f"miglioramento {improvement:.6f} >= {MIN_IMPROVEMENT}"
 
-
 def write_verdict(k: int) -> None:
     """
-    PRE:  esiste trees/estimated_evm_selected.json di k e il riferimento
-          (k=0: iter_00/trees/estimated_evm_legacy.json; k>0: albero selected di k-1).
-    POST: scrive iter_KK/verdict.json, aggiorna data/runs/final.json e stampa il verdetto.
+    PRE:  esistono alberi estimated_evm_<kind> di k. Riferimento: k=0 albero legacy;
+          k>0 il miglior albero EVM di k-1 (verdict.json di k-1).
+    POST: verdict.json con il miglior modello puro (usato per la regola di stop) e, se
+          esiste, le statistiche dell'ibrido (solo informative: pesi tarati sugli stessi segreti).
     """
     root = run_dir(k)
-    current = tree_stats(root / "trees" / SELECTED_TREE)
-    ref_name, ref_path = (
-        ("legacy", run_dir(0) / "trees" / LEGACY_TREE)
-        if k == 0
-        else (f"iter_{k - 1:02d}", run_dir(k - 1) / "trees" / SELECTED_TREE)
-    )
-    reference = tree_stats(ref_path)
+    best_model, current = pick_best_model(root / "trees")
+    if k == 0:
+        ref_name, reference = "legacy", tree_stats(root / "trees" / LEGACY_TREE)
+    else:
+        prev = json.loads((run_dir(k - 1) / "verdict.json").read_text(encoding="utf-8"))
+        ref_name, reference = f"iter_{k - 1:02d}", prev["best"]
     cont, reason = decide(reference["total_moves"], current["total_moves"], current["games"], k)
 
-    legacy_path = run_dir(0) / "trees" / LEGACY_TREE
-    legacy = tree_stats(legacy_path) if legacy_path.exists() else None
+    hybrid_path = root / "trees" / "hybrid_best_minimax.json"
+    hybrid = tree_stats(hybrid_path) if hybrid_path.exists() else None
     verdict = {
-        "iteration": k,
-        "selected": current,
-        "reference_name": ref_name,
-        "reference": reference,
+        "iteration": k, "best_model": best_model, "best": current,
+        "reference_name": ref_name, "reference": reference,
         "improvement_avg": reference["avg"] - current["avg"],
-        "beats_legacy": None if legacy is None else current["total_moves"] < legacy["total_moves"],
-        "continue": cont,
-        "reason": reason,
+        "hybrid": hybrid, "continue": cont, "reason": reason,
     }
     (root / "verdict.json").write_text(json.dumps(verdict, indent=2), encoding="utf-8")
-    print(f"\nIterazione {k}: media {current['avg']:.5f} (caso peggiore {current['worst']}) "
-          f"| riferimento {ref_name}: {reference['avg']:.5f}")
+    print(f"\nIterazione {k}: miglior modello {best_model}: media {current['avg']:.5f} "
+          f"(caso peggiore {current['worst']}) | riferimento {ref_name}: {reference['avg']:.5f}")
+    if hybrid:
+        print(f"Ibrido (informativo): media {hybrid['avg']:.5f}, caso peggiore {hybrid['worst']}")
     print(f"Verdetto: {'CONTINUARE' if cont else 'FERMARSI'} - {reason}")
     update_final()
 
 
 def update_final() -> None:
-    """POST: data/runs/final.json = iterazione con meno mosse totali (a parità, la più vecchia)."""
-    verdicts = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(RUNS_DIR.glob("iter_*/verdict.json"))]
+    """POST: data/runs/final.json = iterazione con meno mosse totali (miglior modello puro)."""
+    verdicts = [json.loads(p.read_text(encoding="utf-8"))
+                for p in sorted(RUNS_DIR.glob("iter_*/verdict.json"))]
     if not verdicts:
         return
-    best = min(verdicts, key=lambda v: (v["selected"]["total_moves"], v["iteration"]))
+    best = min(verdicts, key=lambda v: ((v.get("best") or v["selected"])["total_moves"], v["iteration"]))
+    stats = best.get("best") or best["selected"]
+    kind = best.get("best_model", "selected")
     final = {
-        "best_iteration": best["iteration"],
-        "avg": best["selected"]["avg"],
-        "worst": best["selected"]["worst"],
-        "model": str(run_dir(best["iteration"]) / "models" / "selected.json"),
+        "best_iteration": best["iteration"], "best_model": kind,
+        "avg": stats["avg"], "worst": stats["worst"],
+        "model": str(run_dir(best["iteration"]) / "models" / f"{kind}.json"),
     }
     (RUNS_DIR / "final.json").write_text(json.dumps(final, indent=2), encoding="utf-8")
 
-
 # ------------------------------------------------------------ definizione stadi
-def build_stages(k: int, tournament_max_n: int = 1500) -> list[Stage]:
-    """POST: gli stadi dell'iterazione k, nell'ordine di esecuzione."""
+def build_stages(
+    k: int, tournament_max_n: int = 1500, prev_best: str = "selected", prev_hybrid: bool = False
+) -> list[Stage]:
+    """
+    POST: gli stadi dell'iterazione k. prev_best/prev_hybrid descrivono l'iterazione k-1
+          (miglior modello e presenza dell'ibrido): entrano nel torneo di refine e come sorgenti di stati.
+    """
     R = run_dir(k)
     P = run_dir(k - 1) if k > 0 else None
     trees, models = R / "trees", R / "models"
@@ -328,10 +348,10 @@ def build_stages(k: int, tournament_max_n: int = 1500) -> list[Stage]:
         Stage(
             "init",
             outputs=(R / "raw_states.json",),
-            action=lambda: init_iteration(k),
+            action=lambda: init_iteration(k, prev_best, prev_hybrid),
             inputs=(LEGACY_DIR / "raw_states.json",)
             if P is None
-            else (P / "raw_states.json", P / "trees" / SELECTED_TREE),
+            else (P / "raw_states.json", P / "trees" / f"estimated_evm_{prev_best}.json"),
         )
     ]
     if k == 0:
@@ -340,19 +360,21 @@ def build_stages(k: int, tournament_max_n: int = 1500) -> list[Stage]:
     base_trees = ("max_entropy", "greedy_minimax", "hybrid_entropy_minimax")
     stages += [
         Stage("trees_base", outputs=tuple(trees / f"{n}.json" for n in base_trees), args=(*gen, *base_trees)),
-        Stage("mine", outputs=(R / "raw_states.json",),
-              args=("-m", "experiments.oracle_lab.data_miner")),
-        Stage("augment", outputs=(R / "raw_states.json",),
-              args=("-m", "experiments.oracle_lab.augment_states", "--seed", str(1000 + k))),
+        Stage("mine", outputs=(R / "raw_states.json",), args=("-m", "experiments.oracle_lab.data_miner")),
     ]
+    if k == 0:  # augment costa molto e non migliora il target dei bucket grandi: solo in iter 0
+        stages.append(Stage("augment", outputs=(R / "raw_states.json",),
+                            args=("-m", "experiments.oracle_lab.augment_states", "--seed", str(1000 + k))))
 
     competitors = ["max_entropy", "greedy_minimax"]
     refine = ["-m", "experiments.oracle_lab.dataset_refiner", "--max-tournament-n", str(tournament_max_n)]
     refine_inputs: tuple[Path, ...] = ()
     if P is not None:
-        competitors.append("estimated_evm_selected")
+        competitors.append(f"estimated_evm_{prev_best}")
+        if prev_hybrid:
+            competitors.append("hybrid_best_minimax")
         refine += ["--models-dir", str(P / "models"), "--strict-models"]
-        refine_inputs = (P / "models" / "selected.json",)
+        refine_inputs = (P / "models",)
     refine += ["--competitors", *competitors]
     stages.append(Stage("refine", outputs=(R / "raw_states.json",), args=tuple(refine), inputs=refine_inputs))
 
@@ -379,6 +401,11 @@ def build_stages(k: int, tournament_max_n: int = 1500) -> list[Stage]:
                    "estimated_evm_geometric", "hybrid_evm_minimax")
     stages += [
         Stage("trees_model", outputs=tuple(trees / f"{n}.json" for n in model_trees), args=(*gen, *model_trees)),
+        Stage("tune_hybrid", outputs=(models / "hybrid_best.json",),
+              args=("-m", "experiments.tune_best_hybrid")),
+        # opzionale: se tune_hybrid ha saltato, la strategia non esiste e lo stadio fallisce senza danni
+        Stage("trees_hybrid", outputs=(trees / "hybrid_best_minimax.json",), optional=True,
+              args=(*gen, "hybrid_best_minimax")),
         Stage("verdict", outputs=(R / "verdict.json",), action=lambda: write_verdict(k)),
     ]
     return stages
@@ -399,14 +426,17 @@ def main() -> None:
         raise SystemExit(f"--iter deve essere tra 0 e {MAX_ITERATIONS - 1}")
     if k > 0 and not (run_dir(k - 1) / "verdict.json").exists():
         raise SystemExit(f"Manca {run_dir(k - 1) / 'verdict.json'}: completa prima l'iterazione {k - 1}.")
+    prev_best, prev_hybrid = "selected", False
     if k > 0:
         previous = json.loads((run_dir(k - 1) / "verdict.json").read_text(encoding="utf-8"))
+        prev_best = previous.get("best_model", "selected")
+        prev_hybrid = previous.get("hybrid") is not None
         if not previous["continue"]:
             print(f"ATTENZIONE: il verdetto di iter_{k - 1:02d} era FERMARSI ({previous['reason']}).")
 
     os.chdir(ROOT)
-    execute(build_stages(k, args.tournament_max_n), run_dir(k), only=args.only,
-            from_stage=args.from_stage, force=args.force, dry_run=args.dry_run)
+    execute(build_stages(k, args.tournament_max_n, prev_best, prev_hybrid), run_dir(k),
+            only=args.only, from_stage=args.from_stage, force=args.force, dry_run=args.dry_run)
 
     verdict_path = run_dir(k) / "verdict.json"
     if args.only is None and not args.dry_run and verdict_path.exists():

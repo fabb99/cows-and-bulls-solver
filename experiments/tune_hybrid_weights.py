@@ -48,11 +48,20 @@ def extract_champions(tested: dict[float, tuple[int, float]]) -> tuple[dict[str,
     best_def = min((w for w, (worst, _) in tested.items() if worst == min_worst), key=lambda w: (tested[w][1], w))
     return describe(best_avg), describe(best_def)
 
-
 def run_adaptive_search(
-    a: BaseStrategy, b: BaseStrategy, all_perms: list[str]
+    a: BaseStrategy,
+    b: BaseStrategy,
+    all_perms: list[str],
+    lo: float = 0.5,
+    hi: float = 1.0,
+    coarse_step: float = 0.05,
+    zoom_step: float = 0.01,
+    micro_step: float = 0.002,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """POST: (campione della media, campione difensivo) dopo 3 livelli di zoom."""
+    """
+    PRE:  0 <= lo < hi <= 1. Il raggio di zoom è 4 * passo, come nella versione originale.
+    POST: (campione della media, campione difensivo) dopo 3 livelli sull'intervallo [lo, hi].
+    """
     tested: dict[float, tuple[int, float]] = {}
 
     def run_phase(title: str, weights) -> None:
@@ -62,18 +71,18 @@ def run_adaptive_search(
                 tested[w] = evaluate_weight(a, b, w, all_perms)
                 pbar.set_postfix_str(f"w_a={w:.3f} worst={tested[w][0]} avg={tested[w][1]:.4f}")
 
-    def around(step: float, radius: float):
+    def around(step: float):
         points = []
         for champ in extract_champions(tested):
-            lo, hi = max(0.5, champ["weight_a"] - radius), min(1.0, champ["weight_a"] + radius)
-            points.extend(np.arange(lo, hi + step / 10, step))
+            low = max(lo, champ["weight_a"] - 4 * step)
+            high = min(hi, champ["weight_a"] + 4 * step)
+            points.extend(np.arange(low, high + step / 10, step))
         return points
 
-    run_phase("Fase 1: coarse (0.05)", np.arange(0.50, 1.0001, 0.05))
-    run_phase("Fase 2: zoom (0.01)", around(0.01, 0.04))
-    run_phase("Fase 3: micro (0.002)", around(0.002, 0.008))
+    run_phase(f"Fase 1: coarse ({coarse_step})", np.arange(lo, hi + coarse_step / 10, coarse_step))
+    run_phase(f"Fase 2: zoom ({zoom_step})", around(zoom_step))
+    run_phase(f"Fase 3: micro ({micro_step})", around(micro_step))
     return extract_champions(tested)
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Ottimizza i pesi di una strategia ibrida.")

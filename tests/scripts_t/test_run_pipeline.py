@@ -69,10 +69,10 @@ def test_execute_skip_cascade_from_only_and_dry_run(tmp_path):
     execute(stages, directory)
     assert calls[-1] == "b" and len(calls) == 7
 
-    execute(stages, directory, force=True, dry_run=True)
+    execute(stages, directory, force=True, from_stage="a", dry_run=True)
     assert len(calls) == 7
     with pytest.raises(SystemExit):
-        execute(stages, directory, only="zzz")
+        execute(stages, directory, force=True)
 
 
 def test_failed_stage_is_not_recorded(tmp_path):
@@ -89,13 +89,27 @@ def test_failed_stage_is_not_recorded(tmp_path):
 
 
 def test_build_stages_shapes():
-    s0, s1 = build_stages(0), build_stages(1)
+    s0 = build_stages(0)
+    s1 = build_stages(1, prev_best="geometric", prev_hybrid=True)
     names0, names1 = [s.name for s in s0], [s.name for s in s1]
     assert "baseline" in names0 and "baseline" not in names1
+    assert "augment" in names0 and "augment" not in names1
     assert names0.index("mine") < names0.index("augment") < names0.index("refine")
-    assert names0[-1] == "verdict" and names0[0] == "init"
+    assert names0[0] == "init" and names0[-1] == "verdict"
+    assert names0.index("trees_model") < names0.index("tune_hybrid") < names0.index("trees_hybrid") < names0.index("verdict")
     refine1 = next(s for s in s1 if s.name == "refine")
-    assert "estimated_evm_selected" in refine1.args and "--strict-models" in refine1.args
-    assert any("iter_00" in str(p) for p in refine1.inputs)
+    assert "estimated_evm_geometric" in refine1.args and "hybrid_best_minimax" in refine1.args
+    assert "--strict-models" in refine1.args
     refine0 = next(s for s in s0 if s.name == "refine")
-    assert "estimated_evm_selected" not in refine0.args
+    assert "hybrid_best_minimax" not in refine0.args
+
+
+def test_force_requires_scope_and_only_forces_selected(tmp_path):
+    (tmp_path / "in.txt").write_text("1")
+    calls, directory = [], tmp_path / "run"
+    stages = _stages(tmp_path, calls)
+    execute(stages, directory)
+    with pytest.raises(SystemExit):
+        execute(stages, directory, force=True)
+    execute(stages, directory, force=True, from_stage="b")
+    assert calls[-1] == "b" and len(calls) == 3  # "a" non rieseguito
