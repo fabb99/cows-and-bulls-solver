@@ -108,7 +108,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Raffina i costi degli stati.")
     parser.add_argument("--max-exact-n", type=int, default=10)
     parser.add_argument("--max-tournament-n", type=int, default=1500)
-    parser.add_argument("--competitors", nargs="+", default=["max_entropy", "greedy_minimax"],
+    parser.add_argument("--competitors", nargs="+", default=["max_entropy"],
                         help="nomi dello zoo (src/strategies/zoo.py) che partecipano al torneo")
     parser.add_argument("--models-dir", type=Path, default=MODELS_DIR)
     parser.add_argument("--strict-models", action="store_true")
