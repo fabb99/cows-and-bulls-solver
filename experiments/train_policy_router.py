@@ -9,7 +9,7 @@ Garanzia: il risultato non è mai peggiore del miglior competitor sull'obiettivo
 Nota: per la difesa il totale è un'approssimazione (ogni figlio ottimizza la propria
 coppia lessicograficamente); il caso peggiore è invece esatto.
 
-Uso: python -m experiments.train_router [--competitors NOME ...]
+Uso: python -m experiments.train_policy_router [--competitors NOME ...]
 """
 import argparse
 import json
@@ -24,14 +24,15 @@ from src.core.engine import calculate_buckets
 from src.core.generator import generate_all_permutations
 from src.core.lookup_table import FeedbackLookup
 from src.core.state import state_hash
-from src.paths import MODELS_DIR, ROUTING_POLICY_FILEPATH
+from src.paths import MODELS_DIR, RECIPE_FILEPATH, ROUTING_POLICY_FILEPATH
 from src.strategies.base import BaseStrategy
+from src.strategies.frankenstein import path_key
 from src.strategies.zoo import build_base_strategies
 
 DEFAULT_COMPETITORS = [
     "max_entropy",
-    "estimated_evm_piecewise",
     "estimated_evm_geometric",
+    "estimated_evm_piecewise",
     "hybrid_evm_minimax",
     "hybrid_entropy_minimax",
 ]
@@ -144,11 +145,42 @@ def extract_policy(solver: RouterSolver, root: list[str], objective: str) -> dic
                 stack.append(bucket)
     return policy
 
+def extract_recipe(
+    solver: RouterSolver, root: list[str], objective: str, priority: list[str]
+) -> dict[str, str]:
+    """
+    PRE:  root risolto (o risolvibile); priority = nomi dei competitor in ordine di preferenza.
+    POST: {path_key: nome del competitor} per ogni stato con N >= 3 raggiunto seguendo la
+          policy. Il nome è il primo di `priority` la cui proposta coincide con la mossa scelta
+          (esiste sempre: il solver sceglie solo tra le proposte). Con prima mossa fissa la
+          sequenza di feedback identifica lo stato: un conflitto è un bug e solleva RuntimeError.
+    """
+    recipe: dict[str, str] = {}
+    stack: list[tuple[list[str], tuple]] = [(root, ())]
+    while stack:
+        solutions, path = stack.pop()
+        if len(solutions) <= 2:
+            continue
+        plan = solver.plan(solutions, objective)
+        name = next(
+            (n for n in priority if solver.competitors[n].choose_guess(solutions, []) == plan.guess),
+            None,
+        )
+        if name is None:
+            raise RuntimeError(f"Nessun competitor propone {plan.guess}")
+        key = path_key(path)
+        if recipe.setdefault(key, name) != name:
+            raise RuntimeError(f"Conflitto di ricetta per la chiave {key}")
+        for fb, bucket in calculate_buckets(plan.guess, solutions, solver.lookup).items():
+            if fb != WIN_FEEDBACK:
+                stack.append((bucket, (*path, fb)))
+    return recipe
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Router a programmazione dinamica.")
     parser.add_argument("--competitors", nargs="+", default=DEFAULT_COMPETITORS)
     parser.add_argument("--out", type=str, default=str(ROUTING_POLICY_FILEPATH))
+    parser.add_argument("--recipe-out", type=str, default=str(RECIPE_FILEPATH))
     args = parser.parse_args()
 
     print("Inizializzazione ambiente e Lookup Table...")
@@ -156,7 +188,7 @@ def main() -> None:
     lookup = FeedbackLookup(all_perms)
     lookup.get_feedback(all_perms[0], all_perms[0])
 
-    base = build_base_strategies(all_perms, lookup, MODELS_DIR)
+    base = build_base_strategies(all_perms, lookup, MODELS_DIR, memoize=True)
     unknown = [c for c in args.competitors if c not in base]
     if unknown:
         raise SystemExit(f"Competitor sconosciuti: {unknown}. Disponibili: {sorted(base)}")
@@ -191,6 +223,17 @@ def main() -> None:
     print(f"Policy salvata in {out}")
     print(f"- stati in policy (attacco): {len(output['best_average'])}")
     print(f"- stati in policy (difesa) : {len(output['pareto_defensive'])}")
+
+    priority = list(competitors)
+    recipe = {
+        "meta": {**output["meta"], "first_move": all_perms[0], "priority": priority},
+        "best_average": extract_recipe(solver, all_perms, "avg", priority),
+        "pareto_defensive": extract_recipe(solver, all_perms, "def", priority),
+    }
+    recipe_out = Path(args.recipe_out)
+    recipe_out.parent.mkdir(parents=True, exist_ok=True)
+    recipe_out.write_text(json.dumps(recipe, indent=1), encoding="utf-8")
+    print(f"Ricetta salvata in {recipe_out} ({len(recipe['best_average'])} chiavi)")
 
 
 if __name__ == "__main__":

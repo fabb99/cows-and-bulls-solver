@@ -11,8 +11,12 @@ import time
 from src.cli.game_loop import play_autoplay, play_interactive
 from src.core.generator import generate_all_permutations
 from src.core.lookup_table import FeedbackLookup
-from src.paths import MODELS_DIR, ROUTING_POLICY_FILEPATH
-from src.strategies.zoo import build_base_strategies, build_routed_strategies
+from src.paths import MODELS_DIR, RECIPE_FILEPATH, ROUTING_POLICY_FILEPATH
+from src.strategies.zoo import (
+    build_base_strategies,
+    build_policy_routers,
+    build_recipe_strategies,
+)
 
 
 def main() -> None:
@@ -29,7 +33,8 @@ def main() -> None:
     print(f"Sistema pronto ({time.time() - start:.1f} s)")
 
     available = build_base_strategies(all_perms, lookup, MODELS_DIR)
-    available.update(build_routed_strategies(all_perms, lookup, available, ROUTING_POLICY_FILEPATH))
+    available.update(build_policy_routers(all_perms, lookup, available, ROUTING_POLICY_FILEPATH))
+    available.update(build_recipe_strategies(all_perms, lookup, available, RECIPE_FILEPATH))
 
     if args.list:
         print("\n".join(sorted(available)))

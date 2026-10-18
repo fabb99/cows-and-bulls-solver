@@ -26,8 +26,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from src.analysis.best_model import pick_best_model, tree_stats
-from src.analysis.metrics import calculate_total_moves_and_leaves, max_depth
-from src.analysis.tree_io import load_tree_from_json
 from src.paths import DATA_DIR, LEGACY_DIR
 
 ROOT = Path(__file__).resolve().parent.parent

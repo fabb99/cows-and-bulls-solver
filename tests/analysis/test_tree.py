@@ -31,3 +31,9 @@ def test_empty_solutions_rejected():
     domain = generate_all_permutations()[:5]
     with pytest.raises(ValueError):
         build_decision_tree(EntropyStrategy(domain, FeedbackLookup(domain)), [])
+
+def test_first_move_is_forced_at_root_only(tree):
+    domain = generate_all_permutations()[:40]
+    forced = build_decision_tree(EntropyStrategy(domain, FeedbackLookup(domain)), domain, first_move=domain[9])
+    assert forced["guess"] == domain[9]
+    assert sum(1 for _ in forced["children"]) >= 1

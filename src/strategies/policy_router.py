@@ -1,6 +1,6 @@
 """
 Modulo: frankenstein
-RoutedStrategy: gioca le mosse prescritte da una policy {state_hash: mossa},
+PolicyRouterStrategy: gioca le mosse prescritte da una policy {state_hash: mossa},
 costruita da experiments/train_router.py. Per stati fuori policy delega a una
 strategia di fallback.
 """
@@ -14,7 +14,7 @@ from src.strategies.base import BaseStrategy
 POLICY_STYLES = ("best_average", "pareto_defensive")
 
 
-class RoutedStrategy(BaseStrategy):
+class PolicyRouterStrategy(BaseStrategy):
     higher_is_better = False
 
     def __init__(
@@ -40,7 +40,7 @@ class RoutedStrategy(BaseStrategy):
         all_permutations: list[str],
         lookup: FeedbackLookup,
         fallback: BaseStrategy,
-    ) -> "RoutedStrategy":
+    ) -> "PolicyRouterStrategy":
         """PRE: path è un routing_policy.json valido; style in POLICY_STYLES."""
         if style not in POLICY_STYLES:
             raise ValueError(f"style deve essere uno di {POLICY_STYLES}")
@@ -68,4 +68,4 @@ class RoutedStrategy(BaseStrategy):
     def evaluate_candidates(
         self, candidates_to_test: list[str], possible_solutions: list[str]
     ) -> dict[str, float]:
-        raise NotImplementedError("RoutedStrategy non valuta candidati: segue la policy")
+        raise NotImplementedError("PolicyRouterStrategy non valuta candidati: segue la policy")

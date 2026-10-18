@@ -16,10 +16,11 @@ from src.strategies.base import BaseStrategy
 from src.strategies.basic import MaxFrequencyStrategy, NaiveStrategy
 from src.strategies.entropy import EntropyStrategy
 from src.strategies.estimated_evm import EstimatedEVMStrategy
-from src.strategies.frankenstein import RoutedStrategy
+from src.strategies.frankenstein import FrankensteinStrategy
 from src.strategies.greedy_minimax import GreedyMinimaxStrategy
 from src.strategies.hybrid import HybridWeightedStrategy
 from src.strategies.memoized import MemoizedStrategy
+from src.strategies.policy_router import PolicyRouterStrategy
 
 MODEL_FILES = {
     "geometric": "geometric.json",
@@ -29,7 +30,11 @@ MODEL_FILES = {
 ENTROPY_MINIMAX_WEIGHTS = (0.94, 0.06)
 EVM_MINIMAX_WEIGHTS = (0.944, 0.056)
 GEOMETRIC_MINIMAX_WEIGHTS = (0.962, 0.038)
-ROUTED_NAMES = {
+POLICY_ROUTER_NAMES = {
+    "router_a_strategy": "best_average",
+    "router_d_strategy": "pareto_defensive",
+}
+RECIPE_NAMES = {
     "frankenstein_a_strategy": "best_average",
     "frankenstein_d_strategy": "pareto_defensive",
 }
@@ -115,19 +120,26 @@ def build_base_strategies(
         strategies = {name: MemoizedStrategy(s) for name, s in strategies.items()}
     return strategies
 
-
-def build_routed_strategies(
-    all_perms: list[str],
-    lookup: FeedbackLookup,
-    base: dict[str, BaseStrategy],
-    policy_path: Path,
+def build_policy_routers(
+    all_perms: list[str], lookup: FeedbackLookup, base: dict[str, BaseStrategy], policy_path: Path
 ) -> dict[str, BaseStrategy]:
-    """POST: le due strategie Frankenstein, oppure {} se la policy non esiste."""
+    """POST: i due router a policy per stato, oppure {} se la policy non esiste."""
     if not policy_path.exists():
         return {}
     return {
-        name: RoutedStrategy.from_file(
+        name: PolicyRouterStrategy.from_file(
             policy_path, style, all_perms, lookup, fallback=base["max_entropy"]
         )
-        for name, style in ROUTED_NAMES.items()
+        for name, style in POLICY_ROUTER_NAMES.items()
+    }
+
+def build_recipe_strategies(
+    all_perms: list[str], lookup: FeedbackLookup, base: dict[str, BaseStrategy], recipe_path: Path
+) -> dict[str, BaseStrategy]:
+    """POST: le due Frankenstein a ricetta, oppure {} se la ricetta non esiste."""
+    if not recipe_path.exists():
+        return {}
+    return {
+        name: FrankensteinStrategy.from_file(recipe_path, style, all_perms, lookup, base)
+        for name, style in RECIPE_NAMES.items()
     }

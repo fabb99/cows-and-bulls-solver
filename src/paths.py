@@ -13,3 +13,4 @@ RUN_DIR = Path(os.environ.get("COWS_RUN_DIR", DATA_DIR / "runs" / "iter_00"))
 TREES_DIR = RUN_DIR / "trees"
 MODELS_DIR = RUN_DIR / "models"
 ROUTING_POLICY_FILEPATH = MODELS_DIR / "routing_policy.json"
+RECIPE_FILEPATH = MODELS_DIR / "recipe.json"

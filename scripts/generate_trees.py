@@ -15,11 +15,13 @@ from src.analysis.tree_builder import build_decision_tree
 from src.analysis.tree_io import save_tree_to_json
 from src.core.generator import generate_all_permutations
 from src.core.lookup_table import FeedbackLookup
-from src.paths import MODELS_DIR, ROUTING_POLICY_FILEPATH, TREES_DIR
+from src.paths import MODELS_DIR, RECIPE_FILEPATH, ROUTING_POLICY_FILEPATH, TREES_DIR
 from src.strategies.zoo import (
-    ROUTED_NAMES,
+    POLICY_ROUTER_NAMES,
+    RECIPE_NAMES,
     build_base_strategies,
-    build_routed_strategies,
+    build_policy_routers,
+    build_recipe_strategies,
 )
 
 
@@ -41,10 +43,12 @@ def main() -> None:
     available = build_base_strategies(
         all_perms, lookup, args.models_dir, strict=args.strict_models, memoize=True
     )
-    available.update(build_routed_strategies(all_perms, lookup, available, ROUTING_POLICY_FILEPATH))
+    available.update(build_policy_routers(all_perms, lookup, available, ROUTING_POLICY_FILEPATH))
+    available.update(build_recipe_strategies(all_perms, lookup, available, RECIPE_FILEPATH))
     unknown = [n for n in args.strategies if n not in available]
     if unknown:
-        hint = " (esegui prima train_router)" if set(unknown) & set(ROUTED_NAMES) else ""
+        needs = set(POLICY_ROUTER_NAMES) | set(RECIPE_NAMES)
+        hint = " (esegui prima train_policy_router)" if set(unknown) & needs else ""
         raise SystemExit(f"Strategie non disponibili: {unknown}{hint}. Disponibili: {sorted(available)}")
 
     TREES_DIR.mkdir(parents=True, exist_ok=True)

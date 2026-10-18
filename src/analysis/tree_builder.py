@@ -19,6 +19,7 @@ def build_decision_tree(
     strategy: BaseStrategy,
     possible_solutions: list[str],
     history: list[str] | None = None,
+    first_move: str | None = None,
     on_victory_callback: Callable[[int], None] | None = None,
 ) -> TreeNode:
     """
@@ -33,7 +34,9 @@ def build_decision_tree(
         raise ValueError("possible_solutions è vuota")
     history = history or []
 
-    if len(possible_solutions) <= 2:
+    if first_move is not None and not history:
+        guess = first_move
+    elif len(possible_solutions) <= 2:
         guess = possible_solutions[0]
     else:
         guess = strategy.choose_guess(possible_solutions, history)
