@@ -17,6 +17,16 @@ Tre modalita' di colore:
 
 Canale secondario: bordo spesso scuro sui nodi che contengono almeno una partita
 con profondita' >= --highlight (default: il caso peggiore dell'albero A).
+Configurabile con --highlight N (soglia), --no-highlight (disattiva),
+--border-color e --border-width (aspetto del bordo).
+
+Valore colorato (--metric), valido per tutte e tre le modalita' di colore:
+  - avg   : media delle mosse (default).
+  - worst : caso peggiore (profondita' massima raggiunta dal sotto-albero).
+Etichetta dei nodi (--label):
+  - guess    : la mossa giocata nel nodo (default).
+  - feedback : il feedback che porta al nodo (∅ per (0,0)).
+  - none     : nessun testo, resta solo la struttura colorata.
 
 Una sola visita post-order per albero: nessun ricalcolo quadratico di average_depth.
 
@@ -26,6 +36,8 @@ Esempi (dalla root del progetto):
     python -m scripts.visualize_tree max_entropy estimated_evm_ul        # delta A-B
     python -m scripts.visualize_tree max_entropy --branch 0,2            # solo il ramo (0,2)
     python -m scripts.visualize_tree max_entropy --min-n 1 --maxdepth 6  # niente pruning
+    python -m scripts.visualize_tree max_entropy --metric worst --label feedback
+    python -m scripts.visualize_tree max_entropy estimated_evm_ul --metric worst --label none
 """
 from __future__ import annotations
 
@@ -44,7 +56,7 @@ from src.analysis.tree_io import load_tree_from_json
 from src.cli.game_loop import fb_tuple_to_string
 from src.core.constants import DIM
 
-TREES_DIR = Path("data/runs/iter_00/trees")
+TREES_DIR = Path("data/trees_to_draws" )
 PLOTS_DIR = Path("data/plots")
 
 Distribution = Dict[int, int]  # {mosse_dal_nodo: numero_partite}
@@ -52,6 +64,13 @@ Distribution = Dict[int, int]  # {mosse_dal_nodo: numero_partite}
 COLOR_RELATIVE = "relative"
 COLOR_ABSOLUTE = "absolute"
 COLOR_DELTA = "delta"
+
+METRIC_AVG = "avg"
+METRIC_WORST = "worst"
+
+LABEL_GUESS = "guess"
+LABEL_FEEDBACK = "feedback"
+LABEL_NONE = "none"
 
 LINE_NORMAL = ("rgba(255,255,255,0.55)", 0.4)
 LINE_HIGHLIGHT = ("#111111", 2.4)
@@ -66,7 +85,11 @@ class VizConfig:
     mode: str
     min_n: int
     highlight_depth: int
-    reference: Optional[Dict[str, float]] = None  # {state_id: costo} dell'albero B (solo delta)
+    reference: Optional[Dict[str, float]] = None  # {state_id: valore dal nodo} dell'albero B (solo delta)
+    metric: str = METRIC_AVG
+    label_mode: str = LABEL_GUESS
+    border_color: str = LINE_HIGHLIGHT[0]
+    border_width: float = LINE_HIGHLIGHT[1]
 
 
 @dataclass(slots=True)
@@ -80,10 +103,11 @@ class Rows:
     hover: List[str] = field(default_factory=list)
     line_colors: List[str] = field(default_factory=list)
     line_widths: List[float] = field(default_factory=list)
+    highlight_line: Tuple[str, float] = LINE_HIGHLIGHT
 
     def add(self, node_id: str, label: str, parent: str, value: float,
             color: float, hover: str, highlight: bool) -> None:
-        line_color, line_width = LINE_HIGHLIGHT if highlight else LINE_NORMAL
+        line_color, line_width = self.highlight_line if highlight else LINE_NORMAL
         self.ids.append(node_id)
         self.labels.append(label)
         self.parents.append(parent)
@@ -101,6 +125,7 @@ class _PrunedAcc:
     n: int = 0
     leaves: int = 0
     color_sum: float = 0.0
+    extreme: float = 0.0   # valore di colore con il modulo massimo (usato per il caso peggiore)
     worst: int = 0
 
     def add(self, n: int, dist: Distribution, color: float, child_depth: int) -> None:
@@ -109,11 +134,13 @@ class _PrunedAcc:
         self.n += n
         self.leaves += leaves
         self.color_sum += color * leaves
+        if self.count == 1 or abs(color) > abs(self.extreme):
+            self.extreme = color
         self.worst = max(self.worst, child_depth - 1 + max(dist))
 
-    @property
-    def color(self) -> float:
-        return self.color_sum / self.leaves
+    def color(self, metric: str) -> float:
+        """Media: media pesata sulle partite. Caso peggiore: il valore piu' estremo."""
+        return self.color_sum / self.leaves if metric == METRIC_AVG else self.extreme
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +163,20 @@ def _avg(dist: Distribution) -> float:
     return sum(k * v for k, v in dist.items()) / leaves
 
 
+def _metric_value(dist: Distribution, metric: str) -> float:
+    """Valore dal nodo: media delle mosse oppure caso peggiore (mosse massime)."""
+    return _avg(dist) if metric == METRIC_AVG else float(max(dist))
+
+
+def _node_label(guess: str, path_text: str, label_mode: str) -> str:
+    """Testo mostrato sul nodo: mossa, feedback che porta al nodo, oppure nulla."""
+    if label_mode == LABEL_GUESS:
+        return guess
+    if label_mode == LABEL_FEEDBACK:
+        return path_text.rsplit(" → ", 1)[-1]
+    return ""
+
+
 def _add_shifted(target: Distribution, child_dist: Distribution) -> None:
     """Aggiunge la distribuzione del figlio spostata di +1 mossa (la mossa del padre)."""
     for k, v in child_dist.items():
@@ -145,10 +186,11 @@ def _add_shifted(target: Distribution, child_dist: Distribution) -> None:
 # ---------------------------------------------------------------------------
 # ALBERO DI RIFERIMENTO (B) PER LA MODALITA' DELTA
 # ---------------------------------------------------------------------------
-def build_state_costs(tree: TreeNode) -> Dict[str, float]:
+def build_state_costs(tree: TreeNode, metric: str = METRIC_AVG) -> Dict[str, float]:
     """
-    PRE: tree e' un albero caricato da JSON.
-    POST: Ritorna {state_id: media mosse dal nodo} per ogni nodo dell'albero (visita unica).
+    PRE: tree e' un albero caricato da JSON. metric e' 'avg' o 'worst'.
+    POST: Ritorna {state_id: media mosse (o caso peggiore) dal nodo} per ogni nodo
+          dell'albero (visita unica).
     """
     costs: Dict[str, float] = {}
 
@@ -159,7 +201,7 @@ def build_state_costs(tree: TreeNode) -> Dict[str, float]:
                 dist[1] = dist.get(1, 0) + 1
             else:
                 _add_shifted(dist, visit(child))
-        costs[_state_id(node["possible_solutions"])] = _avg(dist)
+        costs[_state_id(node["possible_solutions"])] = _metric_value(dist, metric)
         return dist
 
     visit(tree)
@@ -220,29 +262,36 @@ def _visit(
     abs_avg = depth - 1 + avg
     worst_abs = depth - 1 + max(dist)
 
+    # Valore su cui si basa il colore (relativo al nodo): media o caso peggiore
+    rel_value = _metric_value(dist, cfg.metric)
+
     ref: Optional[float] = None
     if cfg.mode == COLOR_RELATIVE:
-        color = avg
+        color = rel_value
     elif cfg.mode == COLOR_ABSOLUTE:
-        color = abs_avg
+        color = depth - 1 + rel_value
     else:
         ref = cfg.reference.get(_state_id(solutions)) if cfg.reference else None
-        color = (avg - ref) if ref is not None else 0.0
+        color = (rel_value - ref) if ref is not None else 0.0
 
     if not emit:
         return dist, color
 
     # --- riga aggregata dei sotto-alberi potati ---
     if pruned.count:
+        rest_color = pruned.color(cfg.metric)
+        fmt = "+.3f" if cfg.mode == COLOR_DELTA else ".3f"
+        how = "media pesata" if cfg.metric == METRIC_AVG else "valore massimo"
         rest_hover = (
             f"<b>{pruned.count} sotto-bivi aggregati</b> (N &lt; {cfg.min_n})<br>"
             f"Dopo: {path_text}<br>Soluzioni totali: {pruned.n}<br>"
-            f"Colore medio (pesato): {pruned.color:+.3f}<br>"
+            f"Colore ({how}): {rest_color:{fmt}}<br>"
             f"Caso peggiore: T{pruned.worst}"
         )
+        rest_label = f"…×{pruned.count}" if cfg.label_mode != LABEL_NONE else ""
         rows.add(
-            f"{node_id}|rest", f"…×{pruned.count}", node_id, pruned.n,
-            pruned.color, rest_hover, pruned.worst >= cfg.highlight_depth,
+            f"{node_id}|rest", rest_label, node_id, pruned.n,
+            rest_color, rest_hover, pruned.worst >= cfg.highlight_depth,
         )
 
     # --- riga del nodo ---
@@ -260,11 +309,12 @@ def _visit(
         if ref is None:
             hover += "<br><i>Stato assente nell'albero B</i>"
         else:
-            hover += f"<br>Media B: {ref:.3f} → Δ = {avg - ref:+.3f}"
+            what = "Media" if cfg.metric == METRIC_AVG else "Caso peggiore"
+            hover += f"<br>{what} B (dal nodo): {ref:.3f} → Δ = {rel_value - ref:+.3f}"
 
     win_here = 1 if (DIM, 0) in children else 0
-    rows.add(node_id, node["guess"], parent_id, win_here, color, hover,
-             worst_abs >= cfg.highlight_depth)
+    rows.add(node_id, _node_label(node["guess"], path_text, cfg.label_mode), parent_id,
+             win_here, color, hover, worst_abs >= cfg.highlight_depth)
     return dist, color
 
 
@@ -273,7 +323,7 @@ def flatten_tree(root: TreeNode, root_depth: int, root_id: str, path_text: str, 
     PRE: root e' il nodo da cui partire (root_depth = suo turno, 1 per la radice vera).
     POST: Ritorna le colonne piatte (ids, parents, values, colors, ...) per Plotly.
     """
-    rows = Rows()
+    rows = Rows(highlight_line=(cfg.border_color, cfg.border_width))
     _visit(root, root_depth, root_id, "", path_text, cfg, rows, emit=True)
     return rows
 
@@ -307,6 +357,7 @@ def build_figure(
     rows: Rows,
     kind: str,
     mode: str,
+    metric: str,
     title: str,
     maxdepth: int,
     cmap: Optional[str],
@@ -316,14 +367,15 @@ def build_figure(
     """POST: Ritorna la figura Plotly (sunburst / icicle / treemap) pronta da salvare."""
     lo, hi = resolve_color_range(rows.colors, mode, cmin, cmax)
 
-    #default_cmap = {COLOR_RELATIVE: "YlOrRd", COLOR_ABSOLUTE: "YlOrRd", COLOR_DELTA: "RdBu_r"}[mode]
-    default_cmap = {COLOR_RELATIVE: "PuBuGn", COLOR_ABSOLUTE: "PuBuGn", COLOR_DELTA: "RdBu_r"}[mode]
-
+    default_cmap = {COLOR_RELATIVE: "YlOrRd", COLOR_ABSOLUTE: "YlOrRd", COLOR_DELTA: "RdBu_r"}[mode]
     colorbar_title = {
-        COLOR_RELATIVE: "Media mosse<br>dal nodo",
-        COLOR_ABSOLUTE: "Media mosse<br>totali partita",
-        COLOR_DELTA: "Δ media (A − B)<br>blu = A meglio",
-    }[mode]
+        (COLOR_RELATIVE, METRIC_AVG): "Media mosse<br>dal nodo",
+        (COLOR_ABSOLUTE, METRIC_AVG): "Media mosse<br>totali partita",
+        (COLOR_DELTA, METRIC_AVG): "Δ media (A − B)<br>blu = A meglio",
+        (COLOR_RELATIVE, METRIC_WORST): "Caso peggiore<br>dal nodo (mosse)",
+        (COLOR_ABSOLUTE, METRIC_WORST): "Caso peggiore<br>partita (turno)",
+        (COLOR_DELTA, METRIC_WORST): "Δ caso peggiore (A − B)<br>blu = A meglio",
+    }[(mode, metric)]
 
     marker = dict(
         colors=rows.colors,
@@ -408,6 +460,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--kind", choices=["sunburst", "icicle", "treemap"], default="sunburst")
     p.add_argument("--color", choices=[COLOR_ABSOLUTE, COLOR_RELATIVE], default=COLOR_ABSOLUTE,
                    help="Metrica del colore con un solo albero (default: absolute).")
+    p.add_argument("--metric", choices=[METRIC_AVG, METRIC_WORST], default=METRIC_AVG,
+                   help="Valore da colorare: avg = media mosse (default), worst = caso peggiore.")
+    p.add_argument("--label", choices=[LABEL_GUESS, LABEL_FEEDBACK, LABEL_NONE], default=LABEL_GUESS,
+                   help="Testo sui nodi: guess = mossa (default), feedback = feedback che porta al nodo, "
+                        "none = nessuna etichetta.")
     p.add_argument("--min-n", type=int, default=3,
                    help="Sotto-alberi con meno di N soluzioni vengono aggregati (default 3; 1 = nessun pruning).")
     p.add_argument("--maxdepth", type=int, default=4,
@@ -416,6 +473,12 @@ def parse_args() -> argparse.Namespace:
                    help="Parti da un ramo, es. '0,2' oppure '0,2/1,1' (feedback bulls,cows).")
     p.add_argument("--highlight", type=int, default=None,
                    help="Bordo spesso sui nodi con partite di profondita' >= valore (default: caso peggiore di A).")
+    p.add_argument("--no-highlight", action="store_true",
+                   help="Disattiva del tutto il bordo di evidenziazione del caso peggiore.")
+    p.add_argument("--border-color", type=str, default=LINE_HIGHLIGHT[0],
+                   help="Colore del bordo di evidenziazione (default #111111).")
+    p.add_argument("--border-width", type=float, default=LINE_HIGHLIGHT[1],
+                   help="Spessore del bordo di evidenziazione (default 2.4).")
     p.add_argument("--cmap", type=str, default=None, help="Colorscale Plotly (default YlOrRd / RdBu_r).")
     p.add_argument("--cmin", type=float, default=None, help="Minimo colore (assoluto/relativo).")
     p.add_argument("--cmax", type=float, default=None,
@@ -440,13 +503,25 @@ def main() -> None:
     reference: Optional[Dict[str, float]] = None
     if name_b is not None:
         print(f"Caricamento albero B: {name_b}...")
-        reference = build_state_costs(load_named_tree(name_b))
+        reference = build_state_costs(load_named_tree(name_b), args.metric)
         mode = COLOR_DELTA
     else:
         mode = args.color
 
-    highlight = args.highlight if args.highlight is not None else max_depth(tree_a)
-    cfg = VizConfig(mode=mode, min_n=args.min_n, highlight_depth=highlight, reference=reference)
+    if args.no_highlight:
+        highlight = 10**9  # soglia irraggiungibile: nessun nodo evidenziato
+    else:
+        highlight = args.highlight if args.highlight is not None else max_depth(tree_a)
+    cfg = VizConfig(
+        mode=mode,
+        min_n=args.min_n,
+        highlight_depth=highlight,
+        reference=reference,
+        metric=args.metric,
+        label_mode=args.label,
+        border_color=args.border_color,
+        border_width=args.border_width,
+    )
 
     if args.branch:
         root, root_depth, root_id, path_text = descend_branch(tree_a, args.branch)
@@ -455,19 +530,23 @@ def main() -> None:
 
     print("Appiattimento albero (visita unica)...")
     rows = flatten_tree(root, root_depth, root_id, path_text, cfg)
-    print(f"Nodi disegnati: {len(rows.ids)} (min_n={args.min_n}, bordo spesso da T{highlight})")
+    border_info = "bordo disattivato" if args.no_highlight else f"bordo spesso da T{highlight}"
+    print(f"Nodi disegnati: {len(rows.ids)} (min_n={args.min_n}, {border_info})")
 
+    what = "media mosse" if args.metric == METRIC_AVG else "caso peggiore"
     if mode == COLOR_DELTA:
-        title = f"{name_a}  vs  {name_b} — Δ costo per stato (A − B)"
+        title = f"{name_a}  vs  {name_b} — Δ {what} per stato (A − B)"
     else:
-        label = "media mosse totali" if mode == COLOR_ABSOLUTE else "media mosse dal nodo"
-        title = f"{name_a} — colore: {label}"
+        scope = "totale partita" if mode == COLOR_ABSOLUTE else "dal nodo"
+        title = f"{name_a} — colore: {what} ({scope})"
     if args.branch:
         title += f" — ramo {args.branch}"
 
-    fig = build_figure(rows, args.kind, mode, title, args.maxdepth, args.cmap, args.cmin, args.cmax)
+    fig = build_figure(rows, args.kind, mode, args.metric, title, args.maxdepth, args.cmap, args.cmin, args.cmax)
 
     suffix = f"{name_a}_vs_{name_b}" if name_b else name_a
+    if args.metric == METRIC_WORST:
+        suffix += "_worst"
     if args.branch:
         suffix += "_branch_" + args.branch.replace(",", "").replace("/", "-")
     out = args.out or PLOTS_DIR / f"{suffix}_{args.kind}.html"
