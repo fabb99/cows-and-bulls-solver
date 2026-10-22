@@ -56,7 +56,7 @@ from src.analysis.tree_io import load_tree_from_json
 from src.cli.game_loop import fb_tuple_to_string
 from src.core.constants import DIM
 
-TREES_DIR = Path("data/trees_to_draws" )
+TREES_DIR = Path("data/trees_to_draw" )
 PLOTS_DIR = Path("data/plots")
 
 Distribution = Dict[int, int]  # {mosse_dal_nodo: numero_partite}
@@ -367,7 +367,8 @@ def build_figure(
     """POST: Ritorna la figura Plotly (sunburst / icicle / treemap) pronta da salvare."""
     lo, hi = resolve_color_range(rows.colors, mode, cmin, cmax)
 
-    default_cmap = {COLOR_RELATIVE: "YlOrRd", COLOR_ABSOLUTE: "YlOrRd", COLOR_DELTA: "RdBu_r"}[mode]
+    #default_cmap = {COLOR_RELATIVE: "YlOrRd", COLOR_ABSOLUTE: "Blues", COLOR_DELTA: "RdBu_r"}[mode]
+    default_cmap = {COLOR_RELATIVE: "YlOrRd", COLOR_ABSOLUTE: "YlGn", COLOR_DELTA: "RdBu_r"}[mode]
     colorbar_title = {
         (COLOR_RELATIVE, METRIC_AVG): "Media mosse<br>dal nodo",
         (COLOR_ABSOLUTE, METRIC_AVG): "Media mosse<br>totali partita",
