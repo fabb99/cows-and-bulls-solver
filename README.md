@@ -2,11 +2,11 @@
 
 Un laboratorio per studiare Cows and Bulls (Mastermind a 4 cifre distinte): una collezione di strategie, gli strumenti per misurare le performance su tutte le 5040 partite possibili e per guardarne gli alberi decisionali.
 
-<!-- TODO: immagine di copertina: un sunburst di max_entropy (vedi sezione "Vedere gli alberi") -->
+![](docs/assets/intro_max_entropy.png)
 
 ## Com'è nato
 
-La domanda da cui parte il progetto è semplice: **quanto può essere buona una strategia greedy?** Una strategia greedy sceglie la mossa guardando solo un passo avanti, valutando come quella mossa divide le soluzioni ancora possibili.[non voglio ricalcolare un albero perfetto per poi giocare in base alle mosse che mi sono calcolato dellalbero decisionale]
+La domanda da cui parte il progetto è: **quanto può essere buona una strategia greedy?** Una strategia greedy sceglie la mossa guardando solo un passo avanti, valutando come quella mossa divide le soluzioni ancora possibili. Non calcola in anticipo un albero decisionale perfetto da seguire mossa per mossa: a ogni turno decide sul momento, in base alle soluzioni che restano.
 
 Ogni strategia viene giudicata con due numeri: **media delle mosse** e **caso peggiore**.
 
@@ -14,15 +14,15 @@ Ogni strategia viene giudicata con due numeri: **media delle mosse** e **caso pe
 
 | Parte | Cosa fa | Dove |
 |---|---|---|
-| **Strategie** | Naive, frequenze, entropia, minimax, ibridi pesati, EVM esatta, EVM stimata, router per stato, ricetta "Frankenstein" | `src/strategies/` |
-| **Generazione di alberi** | Gioca una strategia contro tutti i 5040 segreti e salva l'albero decisionale completo in JSON | `scripts/generate_trees.py` |
+| **Strategie** | Naive, frequenze, entropia, minimax semplice, ibridi pesati, EVM esatta, EVM stimata, router per stato, ricetta "Frankenstein" | `src/strategies/` |
+| **Generazione di alberi** | Crea l'albero decisionale completo e lo salva in JSON | `scripts/generate_trees.py` |
 | **Analisi** | Confronto tra alberi (media, caso peggiore, distribuzione dei turni, ramo per ramo), autopsia di un ramo, invarianza rispetto alla prima mossa | `scripts/compare_trees.py`, `experiments/investigate_branch.py`, `experiments/first_move_invariance.py` |
 | **Visualizzazione** | Sunburst, icicle e treemap interattivi degli alberi, con confronto tra due strategie | `scripts/visualize_tree.py` |
 | **Laboratorio dei regressori lineari** | Estrae gli stati dagli alberi, calcola feature, seleziona soglie e feature per fase, addestra e valuta i modelli (OLS ed expectile) | `experiments/oracle_lab/` |
 | **Pipeline** | Orchestra un'iterazione del laboratorio in stadi, con manifest e skip idempotente | `scripts/run_pipeline.py` |
 | **Tuning e router** | Ricerca dei pesi degli ibridi; programmazione dinamica per scegliere la strategia stato per stato | `experiments/tune_*.py`, `experiments/train_policy_router.py` |
 
-Le strategie condividono un'unica interfaccia (`BaseStrategy`): per aggiungerne una basta implementare `evaluate_candidates` e registrarla in `src/strategies/zoo.py`.
+> Le strategie condividono un'unica interfaccia (`BaseStrategy`): per aggiungerne una basta implementare `evaluate_candidates` e registrarla in `src/strategies/zoo.py`.
 
 ```mermaid
 flowchart LR
@@ -43,13 +43,15 @@ Serve Python 3.10 o superiore.
 python -m venv venv
 source venv/bin/activate
 pip install numpy tqdm plotly
-pip install pytest ruff        # sviluppo e test
+pip install pytest ruff
 python -m pytest
 ```
 
 Tutti i comandi si lanciano dalla radice con `python -m ...`; il progetto non si installa come pacchetto.
 
-Giocare contro il solver:
+## Giocare contro il solver
+
+Giocare non è la funzione principale: il progetto serve a calcolare e confrontare strategie, e la partita è solo un modo rapido per provarle.
 
 ```bash
 python main.py --list
@@ -59,8 +61,24 @@ python main.py --strategy max_entropy --secret 9835   # partita automatica
 
 In modalità interattiva si risponde con `+` per ogni toro, `-` per ogni mucca, `0` per nessuna corrispondenza, `q` per uscire.
 
-> **Prima di partire.** [la funzionalità di gioco non è la principale...questa "ottimizzazione" deriva dal fatto che il progetto non nasce tanto per giocare ma per calcolare/trovare buone strategie]Al primo avvio il programma costruisce la tabella dei feedback di tutte le coppie: qualche decina di secondi e circa 1 GB di RAM. Non è bloccato.
-> **Strategie disponibili.** Senza aver eseguito la pipeline hai le strategie base (`naive`, `max_frequency`, `greedy_minimax`, `max_entropy`, `hybrid_entropy_minimax`, `estimated_evm_legacy`). Quelle con modelli, router e ricetta compaiono in `--list` solo se i rispettivi file esistono in `data/`, che non è versionata.
+> **Prima di partire.** Il programma costruisce la tabella dei feedback di tutte le coppie (la stessa che serve per le analisi): qualche decina di secondi e circa 1 GB di RAM.
+
+### Quali strategie sono disponibili
+
+Le strategie sono codice: quelle "base" funzionano appena cloni il repository. Gli **alberi** invece non sono salvati nel repository: si generano con `generate_trees` (vedi sotto). Alcune strategie, inoltre, hanno bisogno di file prodotti dalla pipeline o da altri script, che si trovano in `data/runs/iter_00/models/`.
+
+| Strategia | Cosa serve |
+|---|---|
+| `naive`, `max_frequency`, `greedy_minimax`, `max_entropy` | Niente |
+| `hybrid_entropy_minimax` | Niente (i pesi 0.94 / 0.06 sono fissi nel codice) |
+| `estimated_evm_legacy` | Niente (coefficienti fissi nel codice) |
+| `estimated_evm_geometric`, `estimated_evm_piecewise`, `hybrid_evm_minimax`, `hybrid_geometric_minimax` | Usano il modello in `models/` se esiste; altrimenti ripiegano sui coefficienti legacy, con un avviso |
+| `estimated_evm_selected` | `models/selected.json`, prodotto da `select_model` (parte della pipeline) |
+| `hybrid_best_minimax` | `models/hybrid_best.json`, prodotto da `tune_best_hybrid` |
+| `router_a_strategy`, `router_d_strategy` | `models/routing_policy.json`, prodotto da `train_policy_router` |
+| `frankenstein_a_strategy`, `frankenstein_d_strategy` | `models/recipe.json`, prodotto dallo stesso script del router |
+
+Router e Frankenstein scelgono la mossa stato per stato tra più strategie; la versione "Frankenstein" funziona anche con una prima mossa diversa. Non fanno parte della pipeline: si generano a mano con `train_policy_router`. `python main.py --list` mostra quelle effettivamente disponibili.
 
 Esempio:
 ```bash
@@ -83,6 +101,8 @@ python -m scripts.generate_trees --strategies max_entropy greedy_minimax hybrid_
 python -m scripts.compare_trees --dir data/runs/iter_00/trees
 python -m scripts.compare_trees --dir data/runs/iter_00/trees --branches
 ```
+
+> `generate_trees` salva un file JSON per strategia in `data/runs/iter_00/trees/` (la cartella cambia con `COWS_RUN_DIR`), e salta gli alberi già presenti a meno di `--force`. Servono circa 2 minuti per l'albero di una strategia greedy a profondità 1.
 
 `--branches` ripete il confronto per ogni feedback del primo turno, con turni relativi al sotto-albero: è un modo rapido per vedere *dove* due strategie divergono.
 
@@ -108,16 +128,22 @@ naive                        | 1     | 13    | 108   | 596   | 1668  | 1768  | 7
 
 ## Vedere gli alberi
 
-`visualize_tree` trasforma un albero in una figura interattiva (HTML): ogni nodo è uno spicchio o un rettangolo la cui **area** è proporzionale al numero di soluzioni rimaste e il cui **colore** indica quanto è difficile il sotto-albero. Un bordo spesso segnala i rami che contengono le partite più lunghe.
+`visualize_tree` trasforma un albero in una figura interattiva (HTML). Ogni nodo è uno spicchio o un rettangolo:
+
+- l'**area** è proporzionale al numero di soluzioni rimaste;
+- il **colore** indica quanto costa chiudere la partita da quel punto in poi, in media oppure nel caso peggiore.
 
 ```bash
 python -m scripts.visualize_tree max_entropy
 ```
 
+> **Dove cerca gli alberi.** `visualize_tree` legge da `data/trees_to_draws/`, non da `data/runs/iter_XX/trees/`, dove scrive la pipeline. Le due cartelle sono separate di proposito: la prima contiene tutti gli alberi di un'iterazione, la seconda solo quelli che vuoi disegnare. Per visualizzare un albero, copialo in `data/trees_to_draws/`.
+
+
 ### Una strategia, con i nodi colorati per media delle mosse
 
 <!-- TODO: assets/sunburst_max_entropy.png -->
-![Sunburst di max_entropy](assets/sunburst_max_entropy.png)
+![Sunburst di max_entropy](docs/assets/max_entropy_avg.png)
 
 ```bash
 python -m scripts.visualize_tree max_entropy --kind sunburst --color absolute
@@ -125,11 +151,10 @@ python -m scripts.visualize_tree max_entropy --kind sunburst --color absolute
 
 I rami più chiari si chiudono presto; quelli scuri sono dove le partite si allungano.
 
-### Il caso peggiore
+### I casi peggiori
 
-<!-- TODO: assets/icicle_max_entropy_worst.png -->
-![Icicle di max_entropy, caso peggiore](assets/icicle_max_entropy_worst.png)
-
+<!-- TODO: assets/sunburst_max_entropy_worst.png -->
+![Sunburst di max_entropy, caso peggiore](docs/assets/max_entropy_worst.png)
 ```bash
 python -m scripts.visualize_tree max_entropy --kind sunburst --metric worst --label feedback
 ```
@@ -139,17 +164,13 @@ python -m scripts.visualize_tree max_entropy --kind sunburst --metric worst --la
 Passando due alberi, il colore mostra la differenza di costo dello *stesso stato* nei due alberi: blu dove vince la prima, rosso dove vince la seconda, bianco dove pareggiano.
 
 <!-- TODO: assets/delta_entropy_vs_evm.png -->
-![Confronto max_entropy contro un EVM stimato](assets/delta_entropy_vs_evm.png)
+![Confronto max_entropy contro un EVM stimato](docs/assets//confronto_due_strategie.png)
 
 ```bash
 python -m scripts.visualize_tree max_entropy estimated_evm_geometric
 ```
 
-<!-- TODO: una frase su cosa si vede in questo confronto, dopo aver guardato la figura
-le startegie hanno un tempo medio molto simile alla radice ma hanno performance diverse in base al feedback ricevuto
- -->
-[correggi:
-il percorso di lettura degli alberi: lo script cerca in data/trees_to_draws la pipeline scrive in data/runs/iter_XX/trees(perchè e separata )]
+Le due strategie hanno un numero medio di mosse molto simile alla radice, ma le performance cambiano a seconda del feedback ricevuto: i colori mostrano in quali rami vince l'una e in quali l'altra.
 
 ## Il laboratorio dei regressori
 
@@ -167,7 +188,7 @@ python -m scripts.run_pipeline --iter 0 --dry-run     # cosa farebbe
 python -m scripts.run_pipeline --iter 0               # esegue (richiede tempo)
 ```
 
-I costi sopra N ≈ 10 vengono da strategie già esistenti, quindi l'oracolo impara in gran parte a imitarle: è un limite da tenere presente.
+Un limite da tenere presente: il modello si allena sui risultati di strategie già note. Il suo punto di partenza è il loro livello, non l'ottimo.
 
 ## Struttura
 
@@ -183,6 +204,5 @@ src/
 scripts/           generazione alberi, confronto, visualizzazione, pipeline
 experiments/       laboratorio dei regressori, router, tuning, diagnostica
 tests/             suite pytest
-data/              alberi, modelli e dataset generati (non versionata)
+data/              alberi, modelli e dataset generati (non nel repository: si creano in locale)
 ```
-
