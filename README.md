@@ -17,9 +17,9 @@ Ogni strategia viene giudicata con due numeri: **media delle mosse** e **caso pe
 | **Strategie** | Naive, frequenze, entropia, minimax semplice, ibridi pesati, EVM esatta, EVM stimata, router per stato, ricetta "Frankenstein" | `src/strategies/` |
 | **Generazione di alberi** | Crea l'albero decisionale completo e lo salva in JSON | `scripts/generate_trees.py` |
 | **Analisi** | Confronto tra alberi (media, caso peggiore, distribuzione dei turni, ramo per ramo), autopsia di un ramo, invarianza rispetto alla prima mossa | `scripts/compare_trees.py`, `experiments/investigate_branch.py`, `experiments/first_move_invariance.py` |
-| **Visualizzazione** | Sunburst, icicle e treemap interattivi degli alberi, con confronto tra due strategie | `scripts/visualize_tree.py` |
-| **Laboratorio dei regressori lineari** | Estrae gli stati dagli alberi, calcola feature, seleziona soglie e feature per fase, addestra e valuta i modelli (OLS ed expectile) | `experiments/oracle_lab/` |
-| **Pipeline** | Orchestra un'iterazione del laboratorio in stadi, con manifest e skip idempotente | `scripts/run_pipeline.py` |
+| **Visualizzazione** | Sunburst, icicle e treemap interattivi degli alberi, anche con confronto tra due strategie | `scripts/visualize_tree.py` |
+| **Laboratorio dei regressori lineari** | Estrae gli stati dagli alberi, calcola feature, seleziona soglie e feature per fase, addestra e valuta i modelli | `experiments/oracle_lab/` |
+| **Pipeline** | Orchestra un'iterazione del laboratorio in stadi | `scripts/run_pipeline.py` |
 | **Tuning e router** | Ricerca dei pesi degli ibridi; programmazione dinamica per scegliere la strategia stato per stato | `experiments/tune_*.py`, `experiments/train_policy_router.py` |
 
 > Le strategie condividono un'unica interfaccia (`BaseStrategy`): per aggiungerne una basta implementare `evaluate_candidates` e registrarla in `src/strategies/zoo.py`.
@@ -54,18 +54,18 @@ Tutti i comandi si lanciano dalla radice con `python -m ...`; il progetto non si
 Giocare non è la funzione principale: il progetto serve a calcolare e confrontare strategie, e la partita è solo un modo rapido per provarle.
 
 ```bash
-python main.py --list
+python main.py --list                                 # mostra le strategie disponibili
 python main.py --strategy max_entropy                 # partita interattiva
 python main.py --strategy max_entropy --secret 9835   # partita automatica
 ```
 
 In modalità interattiva si risponde con `+` per ogni toro, `-` per ogni mucca, `0` per nessuna corrispondenza, `q` per uscire.
 
-> **Prima di partire.** Il programma costruisce la tabella dei feedback di tutte le coppie (la stessa che serve per le analisi): qualche decina di secondi e circa 1 GB di RAM.
+> **Prima di partire.** Il programma costruisce la tabella dei feedback di tutte le coppie ipotesi/chiave, così anche per le analisi. Il tempo necessaario qualche decina di secondi e circa 1 GB di RAM.
 
 ### Quali strategie sono disponibili
 
-Le strategie sono codice: quelle "base" funzionano appena cloni il repository. Gli **alberi** invece non sono salvati nel repository: si generano con `generate_trees` (vedi sotto). Alcune strategie, inoltre, hanno bisogno di file prodotti dalla pipeline o da altri script, che si trovano in `data/runs/iter_00/models/`.
+Le strategie "base" funzionano appena viene clonato il repository. Gli **alberi** invece non sono salvati nel repository: si generano con `generate_trees` (vedi sotto). Alcune strategie, inoltre, hanno bisogno di file prodotti dalla pipeline o da altri script, che si trovano in `data/runs/iter_00/models/`.
 
 | Strategia | Cosa serve |
 |---|---|
@@ -78,7 +78,7 @@ Le strategie sono codice: quelle "base" funzionano appena cloni il repository. G
 | `router_a_strategy`, `router_d_strategy` | `models/routing_policy.json`, prodotto da `train_policy_router` |
 | `frankenstein_a_strategy`, `frankenstein_d_strategy` | `models/recipe.json`, prodotto dallo stesso script del router |
 
-Router e Frankenstein scelgono la mossa stato per stato tra più strategie; la versione "Frankenstein" funziona anche con una prima mossa diversa. Non fanno parte della pipeline: si generano a mano con `train_policy_router`. `python main.py --list` mostra quelle effettivamente disponibili.
+Router e Frankenstein scelgono la mossa stato per stato tra più strategie; la versione "Frankenstein" funziona anche con una prima mossa diversa. Non fanno parte della pipeline: si generano a mano con `train_policy_router`. 
 
 Esempio:
 ```bash
@@ -137,10 +137,10 @@ naive                        | 1     | 13    | 108   | 596   | 1668  | 1768  | 7
 python -m scripts.visualize_tree max_entropy
 ```
 
-> **Dove cerca gli alberi.** `visualize_tree` legge da `data/trees_to_draws/`, non da `data/runs/iter_XX/trees/`, dove scrive la pipeline. Le due cartelle sono separate di proposito: la prima contiene tutti gli alberi di un'iterazione, la seconda solo quelli che vuoi disegnare. Per visualizzare un albero, copialo in `data/trees_to_draws/`.
+> **Dove cerca gli alberi.** `visualize_tree` legge da `data/trees_to_draws/`, non da `data/runs/iter_XX/trees/`, dove scrive la pipeline. Le due cartelle sono separate di proposito: la prima contiene tutti gli alberi di un'iterazione, la seconda solo quelli che si vuole s disegnare. Per visualizzare un albero, basta copiarlo in `data/trees_to_draws/`.
 
 
-### Una strategia, con i nodi colorati per media delle mosse
+### Media delle mosse
 
 <!-- TODO: assets/sunburst_max_entropy.png -->
 ![Sunburst di max_entropy](docs/assets/max_entropy_avg.png)
