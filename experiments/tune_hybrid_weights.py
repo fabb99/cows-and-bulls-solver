@@ -1,205 +1,117 @@
 """
-Modulo: tune_hybrid_weights (Script - experiments/)
-Ottimizzatore Adattivo Generico per Strategie Ibride (HybridWeightedStrategy):
-Trova simultaneamente due configurazioni ottimali tra due strategie arbitrarie:
-1. Il Campione della Media Assoluta (minima media mosse complessiva).
-2. Il Campione Difensivo di Pareto (minimo caso peggiore assoluto con la media più bassa).
-Salva i risultati vincenti in data/models/hybrid_weights.json.
+Modulo: tune_hybrid_weights (Script)
+Ricerca adattiva (coarse -> zoom -> micro) del peso ottimale di una HybridWeightedStrategy
+tra due strategie. Trova due campioni:
+  1. Media assoluta (minima media di mosse)
+  2. Difensivo di Pareto (minimo caso peggiore, a parità la media più bassa)
+Ogni valutazione costruisce l'albero completo: è lenta.
+
+Uso: python -m experiments.tune_hybrid_weights --a max_entropy --b greedy_minimax
 """
-from typing import List, Dict, Any, Tuple
-from pathlib import Path
+import argparse
 import json
+from typing import Any
+
 import numpy as np
 from tqdm import tqdm
 
+from src.analysis.metrics import average_depth, max_depth
+from src.analysis.tree_builder import build_decision_tree
 from src.core.generator import generate_all_permutations
 from src.core.lookup_table import FeedbackLookup
+from src.paths import MODELS_DIR
 from src.strategies.base import BaseStrategy
-from src.strategies.entropy import EntropyStrategy
-from src.strategies.greedy_minimax import GreedyMinimaxStrategy
 from src.strategies.hybrid import HybridWeightedStrategy
-from src.strategies.estimated_evm import EstimatedEVMStrategy
-from src.estimators.piecewise import PiecewiseBucketEstimator
-from src.analysis.tree_builder import build_decision_tree
-from src.analysis.metrics import max_depth, average_depth
+from src.strategies.zoo import build_base_strategies
 
-OUTPUT_WEIGHTS_FILEPATH = Path("data/models/hybrid_weights.json")
+TUNABLE = ["max_entropy", "greedy_minimax", "estimated_evm_piecewise", "estimated_evm_geometric"]
 
 
-def evaluate_single_weight(
-    strategy_a: BaseStrategy,
-    strategy_b: BaseStrategy,
-    weight_a: float,
-    all_perms: List[str],
-    is_higher_better_a: bool = True,
-    is_higher_better_b: bool = False,
-) -> Tuple[int, float]:
-    """
-    Costruisce l'albero decisionale completo e misura caso peggiore e media.
-    """
-    w_a = round(weight_a, 4)
-    w_b = round(1.0 - w_a, 4)
-
-    hybrid = HybridWeightedStrategy(
-        strategy_a, strategy_b,
-        is_higher_better_a, is_higher_better_b,
-        w_a, w_b,
-    )
+def evaluate_weight(
+    a: BaseStrategy, b: BaseStrategy, weight_a: float, all_perms: list[str]
+) -> tuple[int, float]:
+    """PRE: 0 <= weight_a <= 1. POST: (caso peggiore, media mosse) dell'ibrida (w, 1-w)."""
+    hybrid = HybridWeightedStrategy(a, b, weight_a, round(1.0 - weight_a, 4))
     tree = build_decision_tree(hybrid, all_perms)
-    worst_case = max_depth(tree)
-    avg_moves = average_depth(tree)
-    return worst_case, avg_moves
+    return max_depth(tree), average_depth(tree)
 
 
-def extract_champions(tested_weights: Dict[float, Tuple[int, float]]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    """
-    Estrae dal registro dei test sia il Campione della Media che il Campione Difensivo di Pareto.
-    """
-    # 1. Campione della Media Assoluta (minima media mosse)
-    best_avg_w = min(tested_weights.keys(), key=lambda w: tested_weights[w][1])
-    champion_avg = {
-        "weight_a": best_avg_w,
-        "weight_b": round(1.0 - best_avg_w, 4),
-        "worst_case": tested_weights[best_avg_w][0],
-        "avg_moves": round(tested_weights[best_avg_w][1], 5)
-    }
+def extract_champions(tested: dict[float, tuple[int, float]]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """PRE: tested non vuoto. POST: (campione della media, campione difensivo)."""
 
-    # 2. Campione Difensivo di Pareto (minimo caso peggiore assoluto, con spareggio sulla media)
-    min_worst = min(res[0] for res in tested_weights.values())
-    candidates_min_worst = [w for w, res in tested_weights.items() if res[0] == min_worst]
-    best_defensive_w = min(candidates_min_worst, key=lambda w: tested_weights[w][1])
-    champion_defensive = {
-        "weight_a": best_defensive_w,
-        "weight_b": round(1.0 - best_defensive_w, 4),
-        "worst_case": tested_weights[best_defensive_w][0],
-        "avg_moves": round(tested_weights[best_defensive_w][1], 5)
-    }
+    def describe(w: float) -> dict[str, Any]:
+        worst, avg = tested[w]
+        return {"weight_a": w, "weight_b": round(1.0 - w, 4), "worst_case": worst, "avg_moves": round(avg, 5)}
 
-    return champion_avg, champion_defensive
+    best_avg = min(tested, key=lambda w: (tested[w][1], w))
+    min_worst = min(worst for worst, _ in tested.values())
+    best_def = min((w for w, (worst, _) in tested.items() if worst == min_worst), key=lambda w: (tested[w][1], w))
+    return describe(best_avg), describe(best_def)
 
 def run_adaptive_search(
-    strategy_a: BaseStrategy,
-    strategy_b: BaseStrategy,
-    all_perms: List[str],
-    is_higher_better_a: bool = True,
-    is_higher_better_b: bool = False
-) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    a: BaseStrategy,
+    b: BaseStrategy,
+    all_perms: list[str],
+    lo: float = 0.5,
+    hi: float = 1.0,
+    coarse_step: float = 0.05,
+    zoom_step: float = 0.01,
+    micro_step: float = 0.002,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """
-    Esegue la ricerca adattiva su 3 livelli di zoom (Coarse -> Zoom -> Micro Focus)
-    tenendo traccia contemporaneamente di entrambi gli obiettivi.
+    PRE:  0 <= lo < hi <= 1. Il raggio di zoom è 4 * passo, come nella versione originale.
+    POST: (campione della media, campione difensivo) dopo 3 livelli sull'intervallo [lo, hi].
     """
-    tested_weights: Dict[float, Tuple[int, float]] = {}
+    tested: dict[float, tuple[int, float]] = {}
 
-    def test_weight(w: float, pbar=None):
-        w_rounded = round(float(w), 4)
-        if w_rounded in tested_weights:
-            return
-        worst, avg = evaluate_single_weight(
-            strategy_a, strategy_b, w_rounded, all_perms,
-            is_higher_better_a, is_higher_better_b
-        )
-        tested_weights[w_rounded] = (worst, avg)
-        if pbar:
-            pbar.set_postfix_str(f"w_a={w_rounded:.3f} | worst={worst} | avg={avg:.4f}")
+    def run_phase(title: str, weights) -> None:
+        todo = sorted({round(float(w), 4) for w in weights} - set(tested))
+        with tqdm(todo, desc=title) as pbar:
+            for w in pbar:
+                tested[w] = evaluate_weight(a, b, w, all_perms)
+                pbar.set_postfix_str(f"w_a={w:.3f} worst={tested[w][0]} avg={tested[w][1]:.4f}")
 
-    # --- FASE 1: Coarse Grid (Passo 0.05 da 0.50 a 1.00) ---
-    coarse_grid = [round(float(x), 2) for x in np.arange(0.50, 1.01, 0.05)]
-    with tqdm(coarse_grid, desc="Fase 1: Coarse Grid (0.05)") as pbar:
-        for w in pbar:
-            test_weight(w, pbar)
+    def around(step: float):
+        points = []
+        for champ in extract_champions(tested):
+            low = max(lo, champ["weight_a"] - 4 * step)
+            high = min(hi, champ["weight_a"] + 4 * step)
+            points.extend(np.arange(low, high + step / 10, step))
+        return points
 
-    # Identifica i due candidati attuali per zoomare attorno a entrambi
-    cand_avg, cand_def = extract_champions(tested_weights)
+    run_phase(f"Fase 1: coarse ({coarse_step})", np.arange(lo, hi + coarse_step / 10, coarse_step))
+    run_phase(f"Fase 2: zoom ({zoom_step})", around(zoom_step))
+    run_phase(f"Fase 3: micro ({micro_step})", around(micro_step))
+    return extract_champions(tested)
 
-    # --- FASE 2: Zoom Grid (Passo 0.01 attorno ai candidati) ---
-    zoom_points = set()
-    for w_target in [cand_avg["weight_a"], cand_def["weight_a"]]:
-        low = max(0.50, w_target - 0.04)
-        high = min(1.00, w_target + 0.04)
-        for w in np.arange(low, high + 0.001, 0.01):
-            zoom_points.add(round(float(w), 3))
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Ottimizza i pesi di una strategia ibrida.")
+    parser.add_argument("--a", choices=TUNABLE, required=True)
+    parser.add_argument("--b", choices=TUNABLE, required=True)
+    args = parser.parse_args()
+    if args.a == args.b:
+        raise SystemExit("--a e --b devono essere diverse")
 
-    with tqdm(sorted(zoom_points), desc="Fase 2: Zoom Grid (0.01)") as pbar:
-        for w in pbar:
-            test_weight(w, pbar)
-
-    # Ricalcola i candidati per il micro-focus
-    cand_avg, cand_def = extract_champions(tested_weights)
-
-    # --- FASE 3: Micro Focus (Passo 0.002 attorno ai vincitori) ---
-    micro_points = set()
-    for w_target in [cand_avg["weight_a"], cand_def["weight_a"]]:
-        low = max(0.50, w_target - 0.008)
-        high = min(1.00, w_target + 0.008)
-        for w in np.arange(low, high + 0.0001, 0.002):
-            micro_points.add(round(float(w), 4))
-
-    with tqdm(sorted(micro_points), desc="Fase 3: Micro Focus (0.002)") as pbar:
-        for w in pbar:
-            test_weight(w, pbar)
-
-    # Verdetto Finale definitivo
-    return extract_champions(tested_weights)
-
-def main():
-    print("Inizializzazione ambiente e Lookup Table...")
     all_perms = generate_all_permutations()
     lookup = FeedbackLookup(all_perms)
     lookup.get_feedback(all_perms[0], all_perms[0])
-    print("Ambiente pronto!\n")
+    base = build_base_strategies(all_perms, lookup, MODELS_DIR)
 
-    # 1. Istanziazione Generica delle due strategie da ottimizzare
-    strategy_c = EntropyStrategy(all_perms, lookup)
-    strategy_a = EstimatedEVMStrategy(all_perms,lookup,PiecewiseBucketEstimator(),strategy_c,fallback_threshold=0)
-    
-    strategy_b = GreedyMinimaxStrategy(all_perms, lookup)
-    #strategy_b = EntropyStrategy(all_perms, lookup)
+    champ_avg, champ_def = run_adaptive_search(base[args.a], base[args.b], all_perms)
 
-    name_a = strategy_a.__class__.__name__
-    name_b = strategy_b.__class__.__name__
+    for title, champ in (("CAMPIONE MEDIO", champ_avg), ("CAMPIONE DIFENSIVO", champ_def)):
+        print(f"\n{title}: peso {args.a} = {champ['weight_a']:.4f}, peso {args.b} = {champ['weight_b']:.4f}")
+        print(f"  media {champ['avg_moves']:.5f} | caso peggiore {champ['worst_case']}")
 
-    print("=" * 75)
-    print(f" OTTIMIZZATORE IPERPARAMETRI ADATTIVO")
-    print(f" Strategia A: {name_a}")
-    print(f" Strategia B: {name_b}")
-    print("=" * 75 + "\n")
-
-    # 2. Esecuzione della Ricerca Adattiva
-    champ_avg, champ_defensive = run_adaptive_search(
-        strategy_a, strategy_b, all_perms,
-        is_higher_better_a=False, is_higher_better_b=False
-    )
-
-    # 3. Stampa dei Risultati a Schermo
-    print("\n" + "=" * 75)
-    print(" RISULTATI OTTIMIZZAZIONE IBRIDA")
-    print("=" * 75)
-    print(f"1. CAMPIONE MEDIO:")
-    print(f"   Peso {name_a} : {champ_avg['weight_a'] * 100:.2f}%")
-    print(f"   Peso {name_b} : {champ_avg['weight_b'] * 100:.2f}%")
-    print(f"   Media Mosse     : {champ_avg['avg_moves']:.5f}")
-    print(f"   Caso Peggiore   : {champ_avg['worst_case']}")
-    print("-" * 75)
-    print(f"2. CAMPIONE DIFENSIVO (Miglior Caso Peggiore):")
-    print(f"   Peso {name_a} : {champ_defensive['weight_a'] * 100:.2f}%")
-    print(f"   Peso {name_b} : {champ_defensive['weight_b'] * 100:.2f}%")
-    print(f"   Media Mosse     : {champ_defensive['avg_moves']:.5f}")
-    print(f"   Caso Peggiore   : {champ_defensive['worst_case']}")
-    print("=" * 75 + "\n")
-
-    # 4. Salvataggio dell'Artefatto su Disco
-    artifact = {
-        "strategy_a": name_a,
-        "strategy_b": name_b,
-        "champion_best_average": champ_avg,
-        "champion_pareto_defensive": champ_defensive
-    }
-    
-    OUTPUT_WEIGHTS_FILEPATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(OUTPUT_WEIGHTS_FILEPATH, "w", encoding="utf-8") as f:
-        json.dump(artifact, f, indent=4)
-        
-    print(f"Configurazioni ottimali salvate con successo in {OUTPUT_WEIGHTS_FILEPATH}!")
+    out = MODELS_DIR / f"hybrid_{args.a}__{args.b}.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with open(out, "w", encoding="utf-8") as file:
+        json.dump(
+            {"strategy_a": args.a, "strategy_b": args.b,
+             "champion_best_average": champ_avg, "champion_pareto_defensive": champ_def},
+            file, indent=4,
+        )
+    print(f"\nSalvato in {out}")
 
 
 if __name__ == "__main__":

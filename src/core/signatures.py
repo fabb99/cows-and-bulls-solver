@@ -1,64 +1,62 @@
 """
 Modulo: signatures
-Gestisce le classi di equivalenza (Isomorfismi) per ottimizzare la ricerca delle IA.
-Raggruppa le candidate in "Firme Strutturali" in base al loro rapporto con lo storico delle mosse.
+Classi di equivalenza (isomorfismi) tra ipotesi, usate per ridurre la ricerca al Turno 1.
+Due candidate con la stessa "firma" rispetto allo storico sono intercambiabili.
 """
+#from typing import Hashable
 
-def calculate_signature(candidate: str, history: list[str]) -> tuple[tuple[int, ...], ...]:
+# 0 = cifra mai giocata, 1 = giocata in posizione diversa, 2 = giocata nella stessa posizione
+_NEW, _MISPLACED, _SAME_POS = 0, 1, 2
+
+Signature = tuple[tuple[int, ...], ...]
+
+
+def calculate_signature(candidate: str, history: list[str]) -> Signature:
     """
-    Calcola il "curriculum" (la firma) di una singola candidata rispetto allo storico.
-    
-    PRE: candidate è una stringa (es. "0123"). history è la lista delle mosse giocate.
-    POST: Ritorna una tupla ordinata di tuple. Ogni sotto-tupla rappresenta 
-          la "storia" di una singola cifra della candidata (0=Nuova, 1=Miss, 2=Home).
+    PRE:  candidate è una combinazione; history la lista delle mosse già giocate.
+    POST: tupla ordinata che descrive, per ogni cifra di candidate, come è comparsa nelle
+          mosse dello storico (0=nuova, 1=presente ma in altra posizione, 2=stessa posizione).
+          L'ordinamento rende la firma indipendente dalla posizione delle cifre.
     """
     signature = []
-    for i, c in enumerate(candidate):
-        num_history = []
+    for i, digit in enumerate(candidate):
+        per_move = []
         for move in history:
-            if c in move:
-                if c == move[i]:
-                    num_history.append(2) # miss
-                else :
-                    num_history.append(1) # home
-            else: 
-                num_history.append(0)     # Nuova
-
-        signature.append(tuple(num_history))
+            if digit not in move:
+                per_move.append(_NEW)
+            elif move[i] == digit:
+                per_move.append(_SAME_POS)
+            else:
+                per_move.append(_MISPLACED)
+        signature.append(tuple(per_move))
     return tuple(sorted(signature))
 
-def group_candidates_by_signature(candidates: list[str], history: list[str]) -> dict[tuple, list[str]]:
-    """
-    Raggruppa tutti i candidati in base alla loro firma strutturale.
-    
-    PRE: candidates lista di permutazioni da testare. history lista di mosse giocate.
-    POST: Ritorna un dizionario dove la CHIAVE è la Firma (Tupla) e il VALORE è 
-          la lista dei candidati che possiedono quella firma.
-    """
-    signatures = {}
-    for candidate in candidates:
-        signature = calculate_signature(candidate, history)
-        if not signature in signatures:
-            signatures[signature]=[]
-        signatures[signature].append(candidate)
-    return signatures
 
-def get_representatives(candidates: list[str], history: list[str], possible_solutions: list[str]) -> list[str]:
+def group_candidates_by_signature(
+    candidates: list[str], history: list[str]
+) -> dict[Signature, list[str]]:
     """
-    Estrae UN SOLO rappresentante per ogni classe di equivalenza (Firma).
-    
-    PRE: candidates e history validi.
-    POST: Ritorna una lista ridotta di candidati da valutare (uno per ogni firma).
-          Se history è vuota (Turno 1), ritorna un solo candidato (es. "0123").
+    PRE:  candidates e history validi.
+    POST: {firma: [candidati con quella firma]}, ordine dei candidati preservato.
     """
+    groups: dict[Signature, list[str]] = {}
+    for c in candidates:
+        groups.setdefault(calculate_signature(c, history), []).append(c)
+    return groups
+
+
+def get_representatives(
+    candidates: list[str], history: list[str], possible_solutions: list[str]
+) -> list[str]:
+    """
+    PRE:  candidates e history validi.
+    POST: un rappresentante per firma, preferendo (se esiste) una soluzione ancora possibile.
+          Con history vuota (Turno 1) restituisce un solo rappresentante: tutte le
+          combinazioni sono equivalenti per simmetria.
+    """
+    solutions = set(possible_solutions)
     representatives = []
-    for _, c in group_candidates_by_signature(candidates,history).items():
-        representatives_in_possible_solutions = [r for r in c if r in possible_solutions]
-        if len(representatives_in_possible_solutions) > 0:
-            representative = representatives_in_possible_solutions[0]
-        else:
-            representative = c[0]
-        representatives.append(representative)
+    for group in group_candidates_by_signature(candidates, history).values():
+        in_solutions = [c for c in group if c in solutions]
+        representatives.append(in_solutions[0] if in_solutions else group[0])
     return representatives
-
-    

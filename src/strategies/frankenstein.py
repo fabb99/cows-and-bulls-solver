@@ -1,96 +1,95 @@
 """
-Modulo: routed (src/strategies)
-Contiene RoutedStrategy: il "Frankenstein" definitivo.
-Legge la Routing Policy da file e delega ogni mossa alla strategia specialista 
-più forte per l'esatto storico dei feedback ricevuti finora.
+Modulo: frankenstein
+FrankensteinStrategy: segue una RICETTA {sequenza di feedback: nome di una strategia}.
+A ogni turno la chiave è la sequenza dei feedback ricevuti finora; la strategia nominata
+sceglie la mossa sullo stato reale. Non memorizza mosse: funziona con qualsiasi prima mossa
+(es. casuale) e con qualsiasi segreto. Chiavi assenti -> strategia di fallback.
 """
-from typing import List, Dict, Optional, Tuple
 import json
+from collections.abc import Sequence
 from pathlib import Path
-from math import inf
 
+from src.core.feedback import Feedback
+from src.core.lookup_table import FeedbackLookup
 from src.strategies.base import BaseStrategy
-from src.core.constants import DIM
 
-DEFAULT_POLICY_FILEPATH = Path("data/models/routing_policy.json")
+RECIPE_STYLES = ("best_average", "pareto_defensive")
+START_KEY = "START"
 
 
-class RoutedStrategy(BaseStrategy):
-    """
-    Seleziona la strategia ottima in base allo storico dei feedback della partita corrente.
-    """
+def path_key(feedbacks: Sequence[Feedback]) -> str:
+    """POST: 'START' se vuota, altrimenti i feedback 'b,c' uniti da '|' (es. '0,1|1,0')."""
+    if not feedbacks:
+        return START_KEY
+    return "|".join(f"{b},{c}" for b, c in feedbacks)
+
+
+class FrankensteinStrategy(BaseStrategy):
+    higher_is_better = False
 
     def __init__(
-        self, 
-        all_permutations: List[str], 
-        lookup, 
-        available_strategies: Dict[str, BaseStrategy],
-        policy_filepath: Path = DEFAULT_POLICY_FILEPATH,
-        style: str = "pareto_defensive", 
-        fallback_strategy_name: str = "max_entropy"
-    ):
+        self,
+        all_permutations: list[str],
+        lookup: FeedbackLookup,
+        recipe: dict[str, str],
+        strategies: dict[str, BaseStrategy],
+        fallback_name: str = "max_entropy",
+    ) -> None:
+        """
+        PRE:  recipe = {path_key: nome}; ogni nome (e fallback_name) è in strategies.
+        POST: ValueError se la ricetta nomina strategie sconosciute.
+        """
         super().__init__(all_permutations, lookup)
-        self.available_strategies = available_strategies
-        self.fallback_strategy_name = fallback_strategy_name
-        self.style = style
-        
-        # Carica il JSON e prende SOLO il ramo dello stile selezionato:
-        full_policy = self._load_policy(policy_filepath)
-        self.routing_policy = full_policy.get(style, full_policy)
+        unknown = (set(recipe.values()) | {fallback_name}) - set(strategies)
+        if unknown:
+            raise ValueError(f"Strategie non disponibili: {sorted(unknown)}")
+        self.recipe = recipe
+        self.strategies = strategies
+        self.fallback_name = fallback_name
 
-    def _load_policy(self, filepath: Path) -> Dict[str, str]:
-        """Carica il JSON della policy."""
-        if filepath.exists():
-            with open(filepath, "r", encoding="utf-8") as f:
-                return json.load(f)
-        return {}
+    @classmethod
+    def from_file(
+        cls,
+        path: Path,
+        style: str,
+        all_permutations: list[str],
+        lookup: FeedbackLookup,
+        strategies: dict[str, BaseStrategy],
+        fallback_name: str = "max_entropy",
+    ) -> "FrankensteinStrategy":
+        """PRE: path è un recipe.json valido; style in RECIPE_STYLES."""
+        if style not in RECIPE_STYLES:
+            raise ValueError(f"style deve essere uno di {RECIPE_STYLES}")
+        with open(path, encoding="utf-8") as file:
+            recipe = json.load(file)[style]
+        return cls(all_permutations, lookup, recipe, strategies, fallback_name)
 
-    def _deduce_feedback_history(self, possible_solutions: List[str], history_moves: List[str]) -> List[Tuple[int, int]]:
+    def feedback_history(self, possible_solutions: list[str], history: list[str]) -> list[Feedback]:
         """
-        Deduce tutti i feedback ricevuti finora confrontando la prima soluzione valida
-        con la lista delle mosse giocate.
+        PRE:  possible_solutions è coerente con history (tutte compatibili con ogni mossa).
+        POST: i feedback ricevuti, uno per mossa giocata.
         """
-        if not history_moves or not possible_solutions:
+        if not history:
             return []
-            
-        secret_sample = possible_solutions[0]
-        feedbacks = []
-        for move in history_moves:
-            fb = self.lookup.get_feedback(move, secret_sample)
-            feedbacks.append(fb)
-            
-        return feedbacks
+        sample = possible_solutions[0]
+        return [self.lookup.get_feedback(move, sample) for move in history]
 
-    def choose_guess(self, possible_solutions: List[str], history: List[str] = None) -> str:
+    def choose_guess(
+        self, possible_solutions: list[str], history: list[str] | None = None
+    ) -> str:
         """
-        Seleziona il "Cervello" giusto per questo specifico turno e delega a lui la mossa.
+        PRE:  possible_solutions non vuota.
+        POST: con N <= 2 la prima soluzione; altrimenti la mossa della strategia che la
+              ricetta assegna alla sequenza di feedback (o del fallback).
         """
-        if history is None:
-            history = []
-            
-        # 1. Determina lo storico dei feedback (la nostra "posizione" nell'albero)
-        if len(history) == 0:
-            history_key = "START"
-        else:
-            feedback_list = self._deduce_feedback_history(possible_solutions, history)
-            history_key = " -> ".join([str(fb) for fb in feedback_list])
+        if not possible_solutions:
+            raise ValueError("possible_solutions è vuota")
+        if len(possible_solutions) <= 2:
+            return possible_solutions[0]
+        history = history or []
+        key = path_key(self.feedback_history(possible_solutions, history))
+        name = self.recipe.get(key, self.fallback_name)
+        return self.strategies[name].choose_guess(possible_solutions, history)
 
-        # 2. Cerca la strategia vincente nel file JSON
-        #    Se non esiste (un ramo mai esplorato o fuori policy), usa il fallback (es. la strategia dell'ultimo turno noto)
-        active_strategy_name = self.routing_policy.get(history_key, self.fallback_strategy_name)
-        
-        # Assicuriamoci che esista nel nostro dizionario
-        if active_strategy_name not in self.available_strategies:
-            active_strategy_name = self.fallback_strategy_name
-            
-        active_strategy = self.available_strategies[active_strategy_name]
-        
-        # 3. DELEGA COMPLETA AL CAMPIONE DI QUESTO RAMO
-        return active_strategy.choose_guess(possible_solutions, history)
-
-    def evaluate_candidates(self, candidates_to_test: List[str], possible_solutions: List[str]) -> Dict[str, float]:
-        """
-        Metodo pass-through per mantenere compatibilità con eventuali test esterni.
-        Restituisce semplicemente 0 per tutte, poiché la scelta la deleghiamo totalmente.
-        """
-        return {c: 0.0 for c in candidates_to_test}
+    def evaluate_candidates(self, candidates_to_test, possible_solutions):
+        raise NotImplementedError("FrankensteinStrategy non valuta candidati: segue la ricetta")

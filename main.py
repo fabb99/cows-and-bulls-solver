@@ -1,63 +1,53 @@
 """
-Punto d'ingresso principale per Cows and Bulls (Mastermind Solver).
+Punto d'ingresso per Cows and Bulls (Mastermind a 4 cifre distinte).
+Uso:
+  python main.py --list
+  python main.py --strategy max_entropy               # partita interattiva
+  python main.py --strategy max_entropy --secret 9835 # autoplay
 """
+import argparse
 import time
+
+from src.cli.game_loop import play_autoplay, play_interactive
 from src.core.generator import generate_all_permutations
 from src.core.lookup_table import FeedbackLookup
-from src.cli.game_loop import play_autoplay, play_interactive
+from src.paths import MODELS_DIR, RECIPE_FILEPATH, ROUTING_POLICY_FILEPATH
+from src.strategies.zoo import (
+    build_base_strategies,
+    build_policy_routers,
+    build_recipe_strategies,
+)
 
-# Import delle strategie
-from src.strategies.basic import NaiveStrategy, MaxFrequencyStrategy
-from src.strategies.greedy_minimax import GreedyMinimaxStrategy
-from src.strategies.entropy import EntropyStrategy
-from src.strategies.hybrid import HybridWeightedStrategy
-from src.strategies.estimated_evm import EstimatedEVMStrategy
-from src.strategies.deep_evm import PureDeepEVMStrategy
-from src.estimators.geometric import GeometricBucketEstimator
 
-def main():
-    print("Avvio del Sistema Cows and Bulls...")
-    
-    # 1. Generazione Universo e Lookup Table
-    print("Generazione permutazioni e Lookup Table in corso (Lazy)...")
-    start_time = time.time()
-    
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Cows and Bulls solver")
+    parser.add_argument("--strategy", default="max_entropy")
+    parser.add_argument("--secret", default=None, help="se indicato, gioca in autoplay")
+    parser.add_argument("--list", action="store_true", help="elenca le strategie disponibili")
+    args = parser.parse_args()
+
+    start = time.time()
     all_perms = generate_all_permutations()
     lookup = FeedbackLookup(all_perms)
-    
-    # OPZIONALE: Forziamo la creazione della tabella subito così non rallenta la prima mossa
-    # (Altrimenti il Turno 1 della partita ci metterebbe 1 secondo in più per caricare)
-    lookup.get_feedback(all_perms[0], all_perms[0]) 
-    
-    print(f"Sistema pronto! ({time.time() - start_time:.2f} sec)\n")
+    lookup.get_feedback(all_perms[0], all_perms[0])
+    print(f"Sistema pronto ({time.time() - start:.1f} s)")
 
+    available = build_base_strategies(all_perms, lookup, MODELS_DIR)
+    available.update(build_policy_routers(all_perms, lookup, available, ROUTING_POLICY_FILEPATH))
+    available.update(build_recipe_strategies(all_perms, lookup, available, RECIPE_FILEPATH))
 
-    # 2. Scelta della Strategia (De-commenta quella che vuoi usare!)
-    estimator = GeometricBucketEstimator()
+    if args.list:
+        print("\n".join(sorted(available)))
+        return
+    if args.strategy not in available:
+        raise SystemExit(f"Strategia sconosciuta: {args.strategy}. Usa --list.")
 
-
-    # strategy = NaiveStrategy(all_perms, lookup)
-    # strategy = MaxFrequencyStrategy(all_perms, lookup)
-    # strategy = GreedyMinimaxStrategy(all_perms, lookup)
-    #strategy = EntropyStrategy(all_perms, lookup)
-    strategy = EstimatedEVMStrategy(all_perms,lookup,estimator,NaiveStrategy(all_perms,lookup),fallback_threshold=0)
-    
-    # ESEMPIO IBRIDA:
-    # strategy_a = EntropyStrategy(all_perms, lookup)
-    # strategy_b = GreedyMinimaxStrategy(all_perms, lookup)
-    # strategy = HybridWeightedStrategy(strategy_a, strategy_b, True, False, 0.94, 0.06, lookup)
-
-
-    # 3. Avvio della Partita
-    print(f"--- Strategia selezionata: {strategy.__class__.__name__} ---")
-    
-    # Scegli se giocare interattivamente o in autoplay
-    
-    play_interactive(strategy, all_perms)
-    
-    # segreto_da_indovinare = "9835"
-    # print(f"Inizio Autoplay contro il segreto: {segreto_da_indovinare}")
-    # mosse = play_autoplay(strategy, segreto_da_indovinare, all_perms)
+    strategy = available[args.strategy]
+    print(f"--- Strategia: {args.strategy} ---")
+    if args.secret:
+        play_autoplay(strategy, args.secret, all_perms)
+    else:
+        play_interactive(strategy, all_perms)
 
 
 if __name__ == "__main__":

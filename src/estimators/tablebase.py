@@ -1,33 +1,26 @@
 """
 Modulo: tablebase (src/estimators)
-Applica il Pattern Decorator: controlla se lo stato è già presente nella memoria
-pre-calcolata (Tablebase). Se presente, ritorna il valore esatto in O(1);
-altrimenti delega il calcolo a un altro BaseBucketEstimator.
+Pattern Decorator: se lo stato è nella tablebase restituisce il costo esatto in O(1),
+altrimenti delega a un altro estimator.
 """
-from typing import List, Dict
+from src.core.state import state_id
 from src.estimators.base import BaseBucketEstimator
 
-class TablebaseBucketEstimator(BaseBucketEstimator):
 
-    def __init__(self, tablebase: Dict[str, float], fallback_estimator: BaseBucketEstimator):
+class TablebaseBucketEstimator(BaseBucketEstimator):
+    def __init__(self, tablebase: dict[str, float], fallback: BaseBucketEstimator) -> None:
         """
-        PRE:
-            - tablebase: Dizionario {state_id: costo_esatto} caricato in memoria.
-            - fallback_estimator: Istanza di BaseBucketEstimator da usare se lo stato non è in tablebase.
+        PRE: tablebase = {state_id: costo_esatto}; fallback è un estimator valido.
         """
         self.tablebase = tablebase
-        self.fallback_estimator = fallback_estimator
+        self.fallback = fallback
 
-    def estimate_cost(self, solutions: List[str]) -> float:
+    def estimate_cost(self, solutions: list[str]) -> float:
         """
-        LOGICA INTERNA:
-        1. Genera lo state_id canonico ordinando le soluzioni con la virgola.
-        2. Se lo state_id è presente in self.tablebase:
-           - Ritorna immediatamente il costo memorizzato (O(1)).
-        3. Se non è presente:
-           - Ritorna self.fallback_estimator.estimate_cost(solutions).
+        PRE:  solutions non vuota.
+        POST: costo esatto se lo stato è in tablebase, altrimenti la stima del fallback.
         """
-        state_id = self.generate_id(solutions)
-        if state_id in self.tablebase:
-            return self.tablebase[state_id]
-        return self.fallback_estimator.estimate_cost(solutions)
+        key = state_id(solutions)
+        if key in self.tablebase:
+            return self.tablebase[key]
+        return self.fallback.estimate_cost(solutions)

@@ -1,1 +1,9 @@
-tqdm==4.70.1
+# Richiede Python >= 3.11 (datetime.UTC, tipi X | None)
+
+# Runtime
+numpy>=1.22      # np.quantile(..., method="lower")
+tqdm>=4.60       # barre di avanzamento
+plotly>=5.0      # solo per scripts/visualize_tree.py
+
+# Test
+pytest>=7.0

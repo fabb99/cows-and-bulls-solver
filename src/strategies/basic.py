@@ -1,86 +1,50 @@
 """
 Modulo: basic
-Contiene le strategie di base (Naive, Max Frequenza).
+Strategie di base: Naive e Max Frequenza. Giocano solo tra le soluzioni possibili.
 """
+from collections import Counter
+
+from src.core.constants import DIM
 from src.strategies.base import BaseStrategy
-from src.core.constants import DIM, BASE
 
 
 class NaiveStrategy(BaseStrategy):
-    """
-    Strategia Naive: restituisce semplicemente il primo elemento
-    della lista delle soluzioni ancora compatibili.
-    """
-    def evaluate_candidates(self, candidates_to_test, possible_solutions) -> dict[str, float]:
-        score_of_candidates= {}
-        for candidate in candidates_to_test:
-            if candidate in possible_solutions:
-                if candidate == possible_solutions[0]:
-                    score_of_candidates[candidate]=2
-                else:
-                    score_of_candidates[candidate]=1
-            else:
-                score_of_candidates[candidate]=0
+    """Gioca la prima soluzione ancora compatibile."""
 
-        return score_of_candidates
-            
-    def choose_guess(self, possible_solutions: list[str], history = None) -> str:
-        return possible_solutions[0]
+    higher_is_better = True
+
+    def candidate_pool(self, possible_solutions: list[str], history: list[str]) -> list[str]:
+        return possible_solutions
+
+    def evaluate_candidates(
+        self, candidates_to_test: list[str], possible_solutions: list[str]
+    ) -> dict[str, float]:
+        """POST: 2 per la prima soluzione, 1 per le altre soluzioni, 0 per le non-soluzioni."""
+        solutions = set(possible_solutions)
+        return {
+            c: 2.0 if c == possible_solutions[0] else 1.0 if c in solutions else 0.0
+            for c in candidates_to_test
+        }
+
 
 class MaxFrequencyStrategy(BaseStrategy):
-    """
-    Strategia Max Frequenza: sceglie l'ipotesi (tra le possibili_solutions)
-    che massimizza la somma delle frequenze posizionali.
-    """
-    def _calculate_positional_frequencies(self, solutions: list[str]) -> list[dict[str, int]]:
-        """
-        Calcola la frequenza di ogni cifra (0-9) per ogni posizione (0-3).
-        
-        PRE: solutions è la lista delle soluzioni ancora valide.
-        POST: Ritorna una lista di lunghezza DIM (es. 4). Ogni elemento è un dizionario
-              dove la chiave è la cifra ('0', '1', ...) e il valore è il numero di 
-              volte che compare in quella posizione in `solutions`.
-        """
-        frequencies = []
-        matrix = [[solution[pos] for solution in solutions] for pos in range(0,DIM)]
-        for p in range(0, DIM):
-            p_frequencies={}
-            for n in range(0,BASE):
-                num = str(n)
-                p_frequencies[num] = matrix[p].count(num)
-            frequencies.append(p_frequencies)
-        return frequencies
+    """Tra le soluzioni possibili, sceglie quella che massimizza le frequenze posizionali."""
 
-    def _evaluate_candidate_score(self, candidate: str, frequencies: list[dict[str, int]]) -> int:
-        """
-        Calcola il punteggio di una singola combinazione basandosi sulle frequenze.
-        
-        PRE: candidate è una stringa valida (es. "0123"). frequencies è l'output del metodo sopra.
-        POST: Ritorna un intero che rappresenta la somma delle frequenze per quella combinazione.
-        """
-        score = 0
-        for p in range(0,DIM):
-            score += frequencies[p][candidate[p]]
-        return score
+    higher_is_better = True
 
-    def evaluate_candidates(self, candidates_to_test, possible_solutions) -> dict[str, float]:
-        frequencies = self._calculate_positional_frequencies(possible_solutions)
-        scores_of_candidates = {}
-        for candidate in candidates_to_test:
-            scores_of_candidates[candidate] = self._evaluate_candidate_score(candidate, frequencies)
-        return scores_of_candidates
+    def candidate_pool(self, possible_solutions: list[str], history: list[str]) -> list[str]:
+        return possible_solutions
 
-    def choose_guess(self, possible_solutions: list[str], history = None) -> str:
-        """
-        PRE: possible_solutions è una lista non vuota.
-        POST: Ritorna il candidato (appartenente a possible_solutions) con il punteggio più alto.
-        """
-        frequencies = self._calculate_positional_frequencies(possible_solutions)
-        guess = None
-        best_score = -1
-        for candidate in possible_solutions:
-            candidate_score = self._evaluate_candidate_score(candidate, frequencies)
-            if candidate_score > best_score:
-                best_score = candidate_score
-                guess = candidate
-        return guess
+    @staticmethod
+    def _positional_frequencies(solutions: list[str]) -> list[Counter]:
+        """POST: per ogni posizione 0..DIM-1, il conteggio di ogni cifra in quella posizione."""
+        return [Counter(s[pos] for s in solutions) for pos in range(DIM)]
+
+    def evaluate_candidates(
+        self, candidates_to_test: list[str], possible_solutions: list[str]
+    ) -> dict[str, float]:
+        """POST: {candidato: somma delle frequenze posizionali delle sue cifre}."""
+        freqs = self._positional_frequencies(possible_solutions)
+        return {
+            c: float(sum(freqs[pos][c[pos]] for pos in range(DIM))) for c in candidates_to_test
+        }

@@ -1,39 +1,45 @@
-from src.core.feedback import calculate_feedback
+"""
+Modulo: lookup_table
+Tabella dei feedback precalcolata in memoria, con costruzione lazy.
+"""
+
+from src.core.feedback import Feedback, calculate_feedback
 
 
 class FeedbackLookup:
     """
-    Gestisce la tabella di lookup dei feedback in memoria.
-    Inizializzazione Lazy (viene calcolata solo la prima volta che serve).
+    Tabella {guess: {secret: feedback}} sull'intero dominio.
+
+    Costruita alla prima richiesta (lazy). Con 5040 permutazioni contiene ~25 milioni
+    di voci: occupa oltre 1 GB di RAM e qualche decina di secondi di calcolo.
     """
-    
-    def __init__(self, domain: list[str]):
-        """ PRE: domain è la lista di tutte le permutazioni possibili. """
+
+    def __init__(self, domain: list[str]) -> None:
+        """PRE: domain è la lista di tutte le combinazioni ammesse (senza duplicati)."""
         self._domain = domain
-        self._table: dict[str, dict[str, tuple[int, int]]] = None
-                   
+        self._table: dict[str, dict[str, Feedback]] | None = None
+
     def _build_table(self) -> None:
         """
-        PRE: Nessuna. Metodo privato (segnalato dall'underscore).
-        POST: Popola self._table con tutte le combinazioni incrociate 
-              sfruttando la simmetria (guess vs secret == secret vs guess).
+        POST: self._table è popolata per tutte le coppie, sfruttando la simmetria
+              feedback(a, b) == feedback(b, a).
         """
-        self._table = {}
+        table: dict[str, dict[str, Feedback]] = {x: {} for x in self._domain}
+        n = len(self._domain)
+        for i in range(n):
+            a = self._domain[i]
+            for j in range(i, n):
+                b = self._domain[j]
+                fb = calculate_feedback(a, b)
+                table[a][b] = fb
+                table[b][a] = fb
+        self._table = table
 
-        for x in self._domain:
-            self._table[x] = {}
-
-        len_domain = len(self._domain)
-        
-        for i in range(0,len_domain):
-            for j in range(i,len_domain):
-                fb = calculate_feedback(self._domain[i], self._domain[j])        
-                self._table[self._domain[i]][self._domain[j]] = fb
-                self._table[self._domain[j]][self._domain[i]] = fb
-
-    def get_feedback(self, guess: str, secret: str) -> tuple[int, int]:
-        """ POST: Ritorna il feedback usando la matrice in memoria O(1). """
+    def get_feedback(self, guess: str, secret: str) -> Feedback:
+        """
+        PRE:  guess e secret appartengono al dominio.
+        POST: feedback (bulls, cows) in O(1) dopo la prima chiamata.
+        """
         if self._table is None:
             self._build_table()
-
         return self._table[guess][secret]

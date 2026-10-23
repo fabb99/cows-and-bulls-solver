@@ -1,90 +1,58 @@
 """
 Modulo: estimated_evm
-Contiene la strategia EVM Stimata.
-Usa la formula di regressione dell'Oracolo (Entropia Residua) per i grandi numeri 
-e delega a PureDeepEVM per il finale di partita (Endgame Tablebase).
+EVM stimata: costo atteso di un candidato = 1 + sum P(bucket) * stima(bucket),
+dove la stima viene da un BaseBucketEstimator.
 """
-from math import inf, log2
-from typing import List, Dict, Optional
-from src.strategies.base import BaseStrategy
-from src.core.constants import DIM
+
 from src.core.engine import calculate_buckets
-from src.core.signatures import get_representatives
+from src.core.lookup_table import FeedbackLookup
 from src.estimators.base import BaseBucketEstimator
+from src.strategies.base import BaseStrategy
+from src.strategies.costs import expected_cost
+
+
 class EstimatedEVMStrategy(BaseStrategy):
+    higher_is_better = False
 
     def __init__(
-        self, 
-        all_permutations: List[str], 
-        lookup, 
+        self,
+        all_permutations: list[str],
+        lookup: FeedbackLookup,
         estimator: BaseBucketEstimator,
-        exact_fallback_strategy: Optional[BaseStrategy] = None,
+        exact_fallback_strategy: BaseStrategy | None = None,
         fallback_threshold: int = 0,
-
-
-    ):
+    ) -> None:
+        """
+        PRE:  se fallback_threshold > 0 serve exact_fallback_strategy.
+        POST: con 2 < N < fallback_threshold la scelta è delegata alla strategia di fallback.
+        """
         super().__init__(all_permutations, lookup)
+        if fallback_threshold > 0 and exact_fallback_strategy is None:
+            raise ValueError("fallback_threshold > 0 richiede exact_fallback_strategy")
         self.estimator = estimator
         self.exact_fallback_strategy = exact_fallback_strategy
         self.fallback_threshold = fallback_threshold
-   
-    def evaluate_candidates(self, candidates_to_test: List[str], possible_solutions: List[str]) -> Dict[str, float]:
-        """
-        PRE: candidates_to_test e possible_solutions validi.
-        POST: Ritorna {candidato: costo_stimato}.
-        """
-        scores_of_candidates: Dict[str, float] = {}
-        num_solutions = len(possible_solutions)
-            
-        for candidate in candidates_to_test:
-            buckets = calculate_buckets(candidate, possible_solutions, self.lookup)
-             # --- CINTURA DI SICUREZZA ANTI-LOOP ---
-            # Se la mossa crea 1 solo bucket e non è vittoria, elimina ZERO soluzioni: SCARTALA!
-            # if len(buckets) == 1 and (DIM, 0) not in buckets:
-            #     continue
-            
-            candidate_cost = 1.0
-            for fb, sol in buckets.items():
-                if fb != (DIM, 0):
-                    p = len(sol) / num_solutions
-                    candidate_cost += p * self.estimator.estimate_cost(sol)
 
-            # Bonus colpo diretto se la mossa è una soluzione valida
-            # if candidate in possible_solutions:
-            #     candidate_cost -= (1.0 / num_solutions)
-
-            scores_of_candidates[candidate] = candidate_cost
-            
-            
-        return scores_of_candidates
-
-    def choose_guess(self, possible_solutions: List[str], history: List[str] = None) -> str:
+    def evaluate_candidates(
+        self, candidates_to_test: list[str], possible_solutions: list[str]
+    ) -> dict[str, float]:
         """
-        PRE: possible_solutions lista non vuota.
-        POST: Ritorna la mossa a costo minimo stimato (o delega a exact_fallback_strategy).
+        POST: {candidato: costo atteso stimato}. Più basso è meglio.
+              I candidati che non partizionano ottengono math.inf.
         """
-        num_solutions = len(possible_solutions)
-        if num_solutions == 1:
-            return possible_solutions[0]
-        elif num_solutions == 2:
-            return possible_solutions[0]
-        elif num_solutions < self.fallback_threshold:
+        n = len(possible_solutions)
+        return {
+            c: expected_cost(
+                calculate_buckets(c, possible_solutions, self.lookup),
+                n,
+                self.estimator.estimate_cost,
+            )
+            for c in candidates_to_test
+        }
+
+    def choose_guess(self, possible_solutions, history=None) -> str:
+        if self.exact_fallback_strategy is not None and (
+            2 < len(possible_solutions) < self.fallback_threshold
+        ):
             return self.exact_fallback_strategy.choose_guess(possible_solutions, history)
-    
-        if history is None:
-            history = []
-        if len(history) < 1:
-            candidates_to_test = get_representatives(self.all_permutations, history, possible_solutions) 
-        else:
-            candidates_to_test = self.all_permutations
-            
-        scores = self.evaluate_candidates(candidates_to_test, possible_solutions)
-        min_cost = min(scores.values())
-        best_candidates = [c for c, cost in scores.items() if cost == min_cost]
-
-        # Spareggio a favore delle soluzioni ancora compatibili
-        for candidate in best_candidates:
-            if candidate in possible_solutions:
-                return candidate
-
-        return best_candidates[0]
+        return super().choose_guess(possible_solutions, history)

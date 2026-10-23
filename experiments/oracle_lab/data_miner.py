@@ -1,107 +1,69 @@
 """
 Modulo: data_miner (Script)
-Fase 1 della Pipeline:
-Estrae tutti i bivi (da N=3 a 5040) da tutti gli alberi decisionali in data/trees/.
-Per ciascun bivio memorizza il miglior costo reale (average_depth) trovato tra tutti gli alberi.
-Salva il risultato grezzo in data/raw_states.json.
+Fase 1: estrae tutti gli stati (bivi) da tutti gli alberi in TREES_DIR.
+Per ogni stato conserva il miglior costo reale trovato tra gli alberi (un upper bound,
+quindi is_exact=False). Salva in RAW_STATES_FILEPATH, accumulando con quanto già presente.
+
+Uso: python -m experiments.oracle_lab.data_miner [--min-n 3] [--max-n 5040]
 """
-from typing import Dict, Any
-from pathlib import Path
-import json
-from tqdm import tqdm
+import argparse
 
+from experiments.oracle_lab.config import COST_TOL, RAW_STATES_FILEPATH, TREES_DIR
 from experiments.oracle_lab.models import RawState
-from src.analysis.tree_io import load_tree_from_json
-from src.analysis.tree_builder import TreeNode
+from experiments.oracle_lab.storage import load_raw_states, save_raw_states
 from src.analysis.metrics import average_depth
-from src.strategies.deep_evm import generate_id
+from src.analysis.tree_builder import TreeNode
+from src.analysis.tree_io import load_tree_from_json
+from src.core.state import state_id as compute_state_id
 
 
-OUTPUT_FILEPATH = Path("data/raw_states.json")
-TREES_DIR = Path("data/trees")
-
-def load_raw_states(filepath: Path) -> Dict[str, RawState]:
-    """
-    PRE: filepath punta all'eventuale file JSON dei dati grezzi.c
-    POST: Ritorna il dizionario degli stati già estratti, oppure un dizionario vuoto.
-    """
-    if filepath.exists():
-        with open(filepath, "r", encoding="utf-8") as file:
-            dataset = json.load(file)     
-        return {state_id :RawState.from_dict(record) for state_id, record in dataset.items()}
-    return {}
-
-def save_raw_states(data: Dict[str, RawState], filepath: Path) -> None:
-    """
-    PRE: data è il dizionario degli stati unici.
-    POST: Salva su disco con indent=4.
-    """
-    with open(filepath, "w", encoding="utf-8") as file:
-        json.dump({state_id: state.to_dict() for state_id, state in data.items()} , file, indent=4)
-
-def mine_tree_recursive(
-    node: TreeNode, 
-    raw_states: Dict[str, RawState], 
+def mine_tree(
+    node: TreeNode,
+    raw_states: dict[str, RawState],
     tree_name: str,
-    min_n: int = 3, 
-    max_n: int = 5040
+    min_n: int = 3,
+    max_n: int = 5040,
 ) -> None:
     """
-    Attraversa ricorsivamente i nodi dell'albero.
-    Per ogni nodo con min_n <= len <= max_n:
-    - Calcola average_depth(node).
-    - Inserisce o aggiorna raw_states[state_id] tenendo il costo MINIMO (best_cost_m).
+    PRE:  node è un nodo di albero valido; raw_states è il dizionario da aggiornare in-place.
+    POST: per ogni nodo del sotto-albero con min_n <= N <= max_n, raw_states[state_id]
+          contiene il costo più basso visto finora (strettamente migliore oltre COST_TOL;
+          a parità resta la sorgente più vecchia). Un costo esatto non viene mai peggiorato.
     """
-    if raw_states is None:
-        raw_states = {}
-  
     solutions = node["possible_solutions"]
-    num_sol = len(solutions)
-
-    if min_n <= num_sol <= max_n:
+    if min_n <= len(solutions) <= max_n:
         cost = average_depth(node)
-        new_state = RawState(solutions, cost, tree_name)
-        state_id = new_state.state_id
-        
-        
-        # Se non c'è o se questo albero ha trovato un costo minore viene aggiornato
-        if state_id not in raw_states or cost < raw_states[state_id].best_cost:
-            raw_states[state_id] = new_state
+        sid = compute_state_id(solutions)
+        known = raw_states.get(sid)
+        if known is None or cost < known.best_cost - COST_TOL:
+            raw_states[sid] = RawState(list(solutions), cost, tree_name)
 
     for child in node["children"].values():
         if child is not None:
-            mine_tree_recursive(child, raw_states, tree_name, min_n, max_n)
+            mine_tree(child, raw_states, tree_name, min_n, max_n)
 
-    return raw_states
 
-def main():
-    """
-    1. Carica raw_states esistente (se c'è).
-    2. Trova tutti i file .json in data/trees/.
-    3. Per ogni albero, lancia mine_tree_recursive.
-    4. Salva il dizionario completo su data/raw_states.json.
-    5. Stampa a schermo quanti stati totali unici sono stati minati!
-    """
-    
-    # 1. Carica il dizionario esistente (se esiste)
-    raw_states = load_raw_states(OUTPUT_FILEPATH)
-    print(f"Dataset caricato: {len(raw_states)} stati già presenti su disco.")
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Estrae gli stati dagli alberi decisionali.")
+    parser.add_argument("--min-n", type=int, default=3)
+    parser.add_argument("--max-n", type=int, default=5040)
+    args = parser.parse_args()
 
-    print("Estrazione stati dagli alberi in corso...")
-    
-    # 2. Cicla su tutti gli alberi e accumula nello STESSO dizionario raw_states!
-    for tree_path in TREES_DIR.glob("*.json"):
-        tree_name = tree_path.stem
-        print(f"- Mining dell'albero: {tree_name}...")
-        tree_data = load_tree_from_json(str(tree_path))
-        
-        # Passiamo lo stesso dizionario raw_states che continua a riempirsi:
-        mine_tree_recursive(tree_data, raw_states, tree_name, min_n=3, max_n=5040)
+    raw_states = load_raw_states(RAW_STATES_FILEPATH)
+    print(f"Dataset caricato: {len(raw_states)} stati già presenti.")
 
-    # 3. Salvataggio UNICO finale su disco dopo aver scansionato TUTTI gli alberi
-    save_raw_states(raw_states, OUTPUT_FILEPATH)
-    print(f"\nOperazione completata. Totale stati unici estratti: {len(raw_states)}")
-    
+    tree_paths = sorted(TREES_DIR.glob("*.json"))
+    if not tree_paths:
+        print(f"Nessun albero in {TREES_DIR}. Genera prima gli alberi.")
+        return
+
+    for path in tree_paths:
+        print(f"- Mining di {path.stem}...")
+        mine_tree(load_tree_from_json(str(path)), raw_states, path.stem, args.min_n, args.max_n)
+
+    save_raw_states(raw_states, RAW_STATES_FILEPATH)
+    print(f"Totale stati unici: {len(raw_states)} -> {RAW_STATES_FILEPATH}")
+
 
 if __name__ == "__main__":
     main()

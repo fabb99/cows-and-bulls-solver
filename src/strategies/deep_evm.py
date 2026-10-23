@@ -1,148 +1,99 @@
 """
 Modulo: deep_evm
-Contiene la strategia EVM Ricorsiva Pura.
-Garantisce la ricerca del minimo matematico assoluto senza approssimazioni.
-Ottimizzata esclusivamente tramite Memoization (Cache) e Branch & Bound rigoroso.
+EVM ricorsiva pura: costo atteso minimo esatto (equazione di Bellman), senza approssimazioni.
+Ottimizzata solo con memoization e Branch & Bound rigoroso.
 """
-from typing import List, Dict, FrozenSet, Optional
-from math import inf
-from src.strategies.base import BaseStrategy
-from src.core.constants import DIM
+import math
+
+from src.core.constants import WIN_FEEDBACK
 from src.core.engine import calculate_buckets
-from src.core.signatures import get_representatives
+from src.core.lookup_table import FeedbackLookup
+from src.core.state import state_id
+from src.strategies.base import BaseStrategy
+from src.strategies.costs import expected_cost
 
 
 class PureDeepEVMStrategy(BaseStrategy):
+    higher_is_better = False
 
-    def __init__(self, all_permutations: List[str], lookup, warmup_strategy: BaseStrategy, precomputed_tablebase: Optional[Dict[str, float]] = None):
+    def __init__(
+        self,
+        all_permutations: list[str],
+        lookup: FeedbackLookup,
+        warmup_strategy: BaseStrategy,
+        precomputed_tablebase: dict[str, float] | None = None,
+    ) -> None:
         """
-        Inizializza la strategia EVM pura.
-        PRE: warmup_strategy è usata SOLO per trovare un primo limite superiore (Upper Bound)
-             reale, senza alterare la completezza della ricerca.
+        PRE:  warmup_strategy serve SOLO a trovare un primo upper bound reale
+              (non altera la completezza della ricerca).
+              precomputed_tablebase = {state_id: costo_esatto}.
         """
         super().__init__(all_permutations, lookup)
         self.warmup_strategy = warmup_strategy
         self.precomputed_tablebase = precomputed_tablebase or {}
-        self.cost_cache: Dict[FrozenSet[str], float] = {}
+        self.cost_cache: dict[frozenset[str], float] = {}
 
-    def _compute_exact_cost(self, solutions: List[str], best_known_bound: float = float('inf')) -> float:
+    def _compute_exact_cost(self, solutions: list[str]) -> float:
         """
-        CUORE RICORSIVO PURO: Esplora l'intero spazio per trovare il costo atteso minimo esatto.
-        
-        PRE: solutions è la lista delle soluzioni rimaste.
-        POST: Ritorna il Valore Atteso (Float) matematicamente perfetto.
-        
-        REGOLE LOGICHE:
-        - Non taglia candidati a priori.
-        - Testa la warmup_guess per prima per abbassare il best_known_bound.
-        - Applica il Branch & Bound solo quando partial_cost >= best_known_bound.
+        PRE:  solutions non vuota.
+        POST: costo atteso minimo esatto per risolvere `solutions`.
+              Esplora tutti i candidati; il warmup viene provato per primo per
+              abbassare presto il bound; un candidato è scartato (Branch & Bound)
+              appena il suo costo parziale raggiunge il miglior costo noto.
         """
-        num_solutions = len(solutions)  
-        if num_solutions == 1:
-            return 1
-        elif num_solutions == 2:
+        n = len(solutions)
+        if n == 1:
+            return 1.0
+        if n == 2:
             return 1.5
 
-        id_state = generate_id(solutions)
-        if id_state in self.precomputed_tablebase:
-            return self.precomputed_tablebase[id_state]
+        if self.precomputed_tablebase:
+            known = self.precomputed_tablebase.get(state_id(solutions))
+            if known is not None:
+                return known
 
         key = frozenset(solutions)
-        if key in self.cost_cache:
-            return self.cost_cache[key]
+        cached = self.cost_cache.get(key)
+        if cached is not None:
+            return cached
 
-        warmup_guess = self.warmup_strategy.choose_guess(solutions)
-        other_candidates = [c for c in self.all_permutations if c != warmup_guess]
-        candidates_to_test = [warmup_guess] + other_candidates
-        
-        for candidate in candidates_to_test:
+        warmup = self.warmup_strategy.choose_guess(solutions)
+        candidates = [warmup] + [c for c in self.all_permutations if c != warmup]
+
+        best = math.inf
+        for candidate in candidates:
             buckets = calculate_buckets(candidate, solutions, self.lookup)
+            if len(buckets) == 1 and WIN_FEEDBACK not in buckets:
+                continue  # non partiziona: scartata (evita ricorsione infinita)
 
-            sorted_buckets = sorted(buckets.items(), key=lambda kv: len(kv[1]), reverse = True)
-
-            if len(buckets)==1 and (DIM,0) not in buckets:
-                continue
-
-            candidate_score = 1
-            unwrapped = False
-
-            for fb, sol in sorted_buckets:
-
-                if (DIM,0) == fb:
+            score = 1.0
+            pruned = False
+            # bucket grandi per primi: fanno salire il costo parziale più in fretta
+            for fb, bucket in sorted(buckets.items(), key=lambda kv: len(kv[1]), reverse=True):
+                if fb == WIN_FEEDBACK:
                     continue
-
-                if candidate_score >= best_known_bound:
-                    unwrapped = True
+                score += (len(bucket) / n) * self._compute_exact_cost(bucket)
+                if score >= best:
+                    pruned = True
                     break
+            if not pruned and score < best:
+                best = score
 
-                probability = len(sol)/num_solutions
-                candidate_score += probability*self._compute_exact_cost(sol)
+        self.cost_cache[key] = best
+        return best
 
-            if not unwrapped and candidate_score < best_known_bound:
-                best_known_bound = candidate_score
+    def evaluate_candidates(
+        self, candidates_to_test: list[str], possible_solutions: list[str]
+    ) -> dict[str, float]:
+        """POST: {candidato: costo atteso esatto}. I candidati che non partizionano ottengono inf."""
+        n = len(possible_solutions)
+        return {
+            c: expected_cost(
+                calculate_buckets(c, possible_solutions, self.lookup), n, self._compute_exact_cost
+            )
+            for c in candidates_to_test
+        }
 
-        self.cost_cache[key] = best_known_bound
-
-        return best_known_bound
-                
-    def evaluate_candidates(self, candidates_to_test: List[str], possible_solutions: List[str]) -> Dict[str, float]:
-        """
-        Valuta i candidati passati calcolando il loro vero valore atteso per la vittoria.
-        
-        PRE: candidates_to_test sono i candidati da valutare (spesso i rappresentanti delle firme al Turno 1).
-        POST: Ritorna {candidato: costo_esatto}.
-        """
-        scores_of_candidates= {}
-        num_solutions = len(possible_solutions)
-        
-        for candidate in candidates_to_test:
-            buckets = calculate_buckets(candidate, possible_solutions, self.lookup)
-            candidate_cost = 1.0
-            for fb, sol in buckets.items():
-                if fb != (DIM, 0):
-                    candidate_cost += (len(sol) / num_solutions) * self._compute_exact_cost(sol)
-            scores_of_candidates[candidate] = candidate_cost
-                    
-        return scores_of_candidates
-
-    def choose_guess(self, possible_solutions: List[str], history: List[str] = None) -> str:
-            """
-            PRE: possible_solutions lista non vuota.
-            POST: Ritorna il candidato globale che garantisce il minor numero medio di mosse.
-            """
-            num_solutions = len(possible_solutions)
-            if num_solutions == 1:
-                return possible_solutions[0]
-            elif num_solutions == 2:
-                return possible_solutions[0]
-
-            if history is None:
-                history = []
-            if len(history) < 1:
-                candidates_to_test = get_representatives(self.all_permutations, history, possible_solutions) 
-            else:
-                candidates_to_test = self.all_permutations
-        
-            min_cost = inf
-            guess = None
-            
-            for candidate in candidates_to_test:
-                buckets = calculate_buckets(candidate, possible_solutions, self.lookup)
-                candidate_cost = 1.0
-
-                for fb, sol in buckets.items():
-                    if fb != (DIM, 0):
-                        candidate_cost += (len(sol) / num_solutions) * self._compute_exact_cost(sol)
-                    
-                if candidate_cost < min_cost:
-                    guess = candidate
-                    min_cost = candidate_cost 
-                elif candidate_cost == min_cost:
-                    if candidate in possible_solutions and (guess is None or guess not in possible_solutions):
-                        guess = candidate
-
-            return guess
-
-
-def generate_id(state:List[str]):
-        return ",".join(sorted(state))
+    def exact_cost(self, solutions: list[str]) -> float:
+        """PRE: solutions non vuota. POST: costo atteso minimo esatto (con memoization)."""
+        return self._compute_exact_cost(solutions)

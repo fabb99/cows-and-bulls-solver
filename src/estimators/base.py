@@ -1,26 +1,16 @@
 """
 Modulo: base (src/estimators)
-Definisce l'interfaccia astratta (BaseBucketEstimator) per qualsiasi modello 
-o oracolo deputato alla stima del costo residuo di un singolo bucket di soluzioni.
+Interfaccia astratta per qualsiasi oracolo che stimi il costo residuo di un bucket.
 """
 from abc import ABC, abstractmethod
-from typing import List
+
 
 class BaseBucketEstimator(ABC):
-    """
-    Classe base astratta per gli stimatori di costo dei bucket.
-    """
+    """Stimatore del numero medio di mosse necessarie per risolvere un bucket."""
 
     @abstractmethod
-    def estimate_cost(self, solutions: List[str]) -> float:
+    def estimate_cost(self, solutions: list[str]) -> float:
         """
-        Stima il numero medio di mosse necessarie per risolvere il gruppo di soluzioni fornito.
-        
-        PRE: solutions è una lista non vuota di combinazioni a 4 cifre distinte.
-        POST: Ritorna il costo atteso minimo (float >= 1.0).
+        PRE:  solutions è una lista non vuota di combinazioni.
+        POST: costo atteso (float >= 1.0), contando anche la mossa che chiude la partita.
         """
-        raise NotImplementedError("Ogni oracolo deve implementare questo metodo")
-
-    @staticmethod
-    def generate_id(state:List[str]):
-        return ",".join(sorted(state))
