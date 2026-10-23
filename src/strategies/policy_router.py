@@ -1,5 +1,5 @@
 """
-Modulo: frankenstein
+Modulo: policy_router
 PolicyRouterStrategy: gioca le mosse prescritte da una policy {state_hash: mossa},
 costruita da experiments/train_router.py. Per stati fuori policy delega a una
 strategia di fallback.

@@ -456,7 +456,7 @@ def descend_branch(tree: TreeNode, branch: str) -> Tuple[TreeNode, int, str, str
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Visualizza alberi decisionali come sunburst/icicle/treemap.")
     p.add_argument("trees", nargs="+", metavar="ALBERO",
-                   help="Nome (senza .json) in data/trees/. Uno solo = colore assoluto/relativo; "
+                   help="Nome (senza .json) in data/trees_to_draw/. Uno solo = colore assoluto/relativo; "
                         "due = confronto delta (A - B).")
     p.add_argument("--kind", choices=["sunburst", "icicle", "treemap"], default="sunburst")
     p.add_argument("--color", choices=[COLOR_ABSOLUTE, COLOR_RELATIVE], default=COLOR_ABSOLUTE,

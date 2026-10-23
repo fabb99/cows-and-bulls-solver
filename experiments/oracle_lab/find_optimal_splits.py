@@ -3,8 +3,7 @@ Modulo: find_optimal_splits (Script)
 Algoritmo CART 1D: cerca le soglie su N che minimizzano la somma degli errori quadratici
 (SSE) del Costo Reale rispetto alla media di ogni scaglione.
 
-NOTA (DA STUDIARE prima dell'ultimo commit del refactoring; per ora il comportamento
-resta quello originale):
+Limiti:
   1. La "varianza eliminata" del secondo taglio è relativa al solo sotto-insieme destro
      (N > T1), non al totale: il numero stampato non è confrontabile con il primo.
   2. Le soglie sono scelte su SSE in-sample, senza cross-validation.

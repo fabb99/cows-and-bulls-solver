@@ -10,11 +10,6 @@ fuori fold del miglior sottoinsieme di feature (il più semplice entro `tol` dal
 L'SSE è additivo tra fasi, quindi la partizione ottima per ogni K è esatta (sui tagli
 candidati). K è il più piccolo entro `tol_k` dal migliore.
 
-Limiti noti (da dichiarare nel README):
-  - l'errore CV con cui si sceglie è ottimistico: servono stati nuovi e il regret di policy;
-  - il target è esatto solo per N piccoli: guardare la quota di esatti per fase;
-  - la selezione usa OLS; alpha agisce solo nel rifit finale dei coefficienti.
-
 Uso: python -m experiments.oracle_lab.select_model [--max-phases 4] [--min-samples 50]
 """
 import argparse

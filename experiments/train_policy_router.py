@@ -16,6 +16,7 @@ import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 
 from tqdm import tqdm
 
@@ -214,7 +215,7 @@ def main() -> None:
         "best_average": extract_policy(solver, all_perms, "avg"),
         "pareto_defensive": extract_policy(solver, all_perms, "def"),
     }
-    from pathlib import Path
+
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)

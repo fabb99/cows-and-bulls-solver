@@ -64,8 +64,6 @@ def train_segmented_model(
     for r in records:
         groups[sum(s < r.n for s in splits)].append(r)  # stessa regola di SegmentedLinearEstimator
 
-    #"created": datetime.now(UTC).isoformat(timespec="seconds"),
-
     segments, report = [], []
     for k, group in enumerate(groups):
         if len(group) < len(features) + 2:
